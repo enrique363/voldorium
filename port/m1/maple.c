@@ -51,6 +51,8 @@ static u32 button_bit(char ch)
 	case 'r': return 0x0080;
 	case 'y': return 0x0200;
 	case 'x': return 0x0400;
+	case 'L': return 0x1000;	/* triggers (see MDC_GET_CONDITION) */
+	case 'R': return 0x2000;
 	default: return 0;
 	}
 }
@@ -156,9 +158,11 @@ static u32 controller(u32 cmd, u32 port)
 		if (port == 0)
 			conditions++;
 		w32(MFID_INPUT);
-		w16((u16)(~pressed | 0xf901));	/* active low; C, D, Z and the second D-pad absent */
-		w8(0);		/* right trigger */
-		w8(0);		/* left trigger */
+		/* buttons active low; C, D, Z and the second D-pad absent. The triggers travel in two of
+		   those absent bits (0x1000 L, 0x2000 R), so netplay's 16-bit inputs carry them */
+		w16((u16)(~pressed | 0xf901));
+		w8(pressed & 0x2000 ? 0xff : 0);	/* right trigger */
+		w8(pressed & 0x1000 ? 0xff : 0);	/* left trigger */
 		w8(0x80);	/* analog X */
 		w8(0x80);	/* analog Y */
 		w8(0x80);

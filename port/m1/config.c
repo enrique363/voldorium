@@ -198,7 +198,7 @@ static void apply_settings(void)
 	env_default("M1_VOLUME", config_get("audio", "volume"));
 	/* keys: "up=Up,down=Down,..." for render.c */
 	char keys[512] = "";
-	static const char *names[] = { "up", "down", "left", "right", "a", "b", "x", "y", "start" };
+	static const char *names[] = { "up", "down", "left", "right", "a", "b", "x", "y", "start", "l", "r" };
 	for (unsigned i = 0; i < sizeof(names) / sizeof(names[0]); i++)
 		if ((v = config_get("keys", names[i])))
 		{

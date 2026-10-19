@@ -20,6 +20,8 @@ All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); 
   VERSUS and the reason in the help line. Before, both were stuck on a black screen.
 - **VS BATTLE** no longer says "A Controller was removed": a second game controller is now
   player 2.
+- **L / R triggers** reach the game (they were always released): the gallery's picture viewer
+  changes pictures with them. Keyboard Q / W, a controller's triggers or shoulder buttons.
 - Changes made in the GRAPHICS menu (resolution, full screen, anti-aliasing) now also apply to
   online matches.
 - Building from the repository uses its own copy of GGPO (`third_party/ggpo`).

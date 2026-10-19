@@ -50,6 +50,8 @@ b = X
 x = A
 y = S
 start = Return
+l = Q
+r = W
 
 [net]
 port = 7000
@@ -71,10 +73,12 @@ disc, with its track files next to it); after that it starts straight away.
 Everything else is in the game's own menus. To choose another disc dump, delete the "disc ="
 line in voldorium.ini.
 
-Controls: arrow keys = D-pad, Z = A, X = B, A = X, S = Y, Enter = Start (change them in
-voldorium.ini, [keys], with SDL key names). Confirm with A (Z, or the controller's A button):
-Start (Enter) only works in the main menu; B (X) goes back. A game controller plays player 1
-with the keyboard (left stick or D-pad); a second controller is player 2, for VS BATTLE.
+Controls: arrow keys = D-pad, Z = A, X = B, A = X, S = Y, Q / W = L / R triggers,
+Enter = Start (change them in voldorium.ini, [keys], with SDL key names). Confirm with A (Z,
+or the controller's A button): Start (Enter) only works in the main menu; B (X) goes back. A
+game controller plays player 1 with the keyboard (left stick or D-pad; triggers or shoulder
+buttons for L / R); a second controller is player 2, for VS BATTLE. In the gallery's picture
+viewer L / R change pictures (the D-pad moves the picture).
 The game starts full screen at your monitor's resolution. GRAPHICS in the main menu (under
 OPTIONS) switches between full screen and a window, sets the resolution the game is drawn at
 (native or a 16:9 size up to your monitor's) and anti-aliasing (off, 2x, 4x, 8x); changes apply

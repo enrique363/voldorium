@@ -713,6 +713,11 @@ scripts do not reach them).
   match inherited the old `M1_MSAA` / `M1_RESOLUTION` / `M1_FULLSCREEN`; the change now updates
   the environment too. MSAA smooths polygon edges, not the pixels inside textures (text).
 - `build_win.sh` takes GGPO's headers from `third_party/ggpo` (it still pointed at `engines/`).
+- **Triggers**: the controller reply always said L and R were released, so the gallery's
+  picture viewer (L / R: previous / next picture; the D-pad pans) never changed pictures. The
+  triggers now travel in two of the button word's absent bits (0x1000 L, 0x2000 R; maple.c sends
+  them as 0 / 255 trigger bytes), so netplay's 16-bit inputs carry them; keyboard Q / W
+  (`[keys] l`, `r`), a controller's triggers or shoulder buttons, `L` / `R` in M1_PADS scripts.
 
 ## Every mode reachable, second controller (2026-10-19)
 

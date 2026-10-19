@@ -434,12 +434,16 @@ static u32 pad_bits(SDL_GameController *pad)
 	if (ax > dz) b |= 0x0080;
 	if (ay < -dz) b |= 0x0010;
 	if (ay > dz) b |= 0x0020;
+	/* triggers, or the shoulder buttons */
+	if (SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_TRIGGERLEFT) > dz) b |= 0x1000;
+	if (SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > dz) b |= 0x2000;
 	static const struct { int btn; u32 bit; } map[] = {
 		{ SDL_CONTROLLER_BUTTON_A, 0x0004 }, { SDL_CONTROLLER_BUTTON_B, 0x0002 },
 		{ SDL_CONTROLLER_BUTTON_X, 0x0400 }, { SDL_CONTROLLER_BUTTON_Y, 0x0200 },
 		{ SDL_CONTROLLER_BUTTON_START, 0x0008 }, { SDL_CONTROLLER_BUTTON_DPAD_UP, 0x0010 },
 		{ SDL_CONTROLLER_BUTTON_DPAD_DOWN, 0x0020 }, { SDL_CONTROLLER_BUTTON_DPAD_LEFT, 0x0040 },
 		{ SDL_CONTROLLER_BUTTON_DPAD_RIGHT, 0x0080 },
+		{ SDL_CONTROLLER_BUTTON_LEFTSHOULDER, 0x1000 }, { SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, 0x2000 },
 	};
 	for (unsigned i = 0; i < sizeof(map) / sizeof(map[0]); i++)
 		if (SDL_GameControllerGetButton(pad, map[i].btn))
@@ -541,6 +545,7 @@ static struct { const char *name; u32 bit; SDL_Scancode key; } keymap[] = {
 	{ "a", 0x0004, SDL_SCANCODE_Z }, { "b", 0x0002, SDL_SCANCODE_X },
 	{ "x", 0x0400, SDL_SCANCODE_A }, { "y", 0x0200, SDL_SCANCODE_S },
 	{ "start", 0x0008, SDL_SCANCODE_RETURN },
+	{ "l", 0x1000, SDL_SCANCODE_Q }, { "r", 0x2000, SDL_SCANCODE_W },	/* triggers (maple.c) */
 };
 
 static void load_keymap(void)
