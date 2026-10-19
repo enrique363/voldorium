@@ -7,6 +7,7 @@
 !/README.md
 !/NOTICE.md
 !/CHANGELOG.md
+!/.recomp.json
 !/docs/
 !/ghidra-scripts/
 !/ghidra-run.sh
