@@ -1,0 +1,15 @@
+# Key globals. Format: addr<TAB>g_name<TAB>comment
+0x8c266c10	g_screen_width	float 640.0 (struct base: screen/projection params)
+0x8c266c14	g_screen_height	float 480.0
+0x8c266c18	g_screen_center_x	float 320.0
+0x8c266c1c	g_screen_center_y	float 240.0
+0x8c266c20	g_proj_focal	float 320/tan(fov/2): screen distance used by projection
+0x8c266c24	g_proj_fov_deg	float 55.0 horizontal field of view
+0x8c266c28	g_aspect_scale_x	float 1.0; widescreen: 0.75 for 16:9 (Hor+)
+0x8c266c2c	g_aspect_scale_y	float 1.0 VGA, 0.92 NTSC, 1.1 PAL
+0x8c33d2dc	g_pd_peripheral	PDS_PERIPHERAL[24], 0x34 bytes each (Shinobi pd)
+0x8c24a4d4	g_game_pads	16-byte game pad record per port (GGPO injection point)
+0x8c24a54c	g_pad_periph_ptrs	pointers from pdGetPeripheral per port
+0x8c24a534	g_pad_device_type	byte per port: detected device type
+0x8c25b724	g_pad_any_held	u16 words: OR of both players' pad state, written at end of main loop
+0x8c24a904	g_vsync_count	incremented by vsync_callback

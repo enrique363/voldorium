@@ -1,0 +1,32 @@
+# Phase 3 (widescreen) names. Format: addr<TAB>name<TAB>plate comment
+0x8c223fa2	kmSetPixelClipping	high: packs x0|x1<<16, y0|y1<<16 (FB_X_CLIP/FB_Y_CLIP layout), clamps to 0x7ff
+0x8c01c92a	clip_window_reset	high: kmSetPixelClipping(0,0,640,480)
+0x8c01c9c0	clip_window_wipe_update	high: animated iris/wipe clip window clamped to 0..640 x 0..480; first call of game_update
+0x8c01cc60	clip_window_set_mode	medium: sets clip window to 640x480 or a smaller mode-dependent size
+0x8c031e08	clip_window_init_mode	medium: resets state and clip window to 640x480
+0x8c0c09ae	project_points_rev	high: XMTRX transform + perspective, sx = x/z + 320, sy = y/z + 240; returns behind-camera flag
+0x8c0c0942	project_points	high: same as project_points_rev, forward order
+0x8c0c08f2	project_point	high: single point, returns behind-camera flag
+0x8c0631d0	draw_rect_2d	high: (rect{x,y,w,h,z}, ARGB, list) flat quad via store queue
+0x8c0632be	draw_quad_2d_gouraud	high: (rect{x,y,w,h,z}, ARGB[4], list, flags) per-vertex colour quad
+0x8c0633a8	draw_sprite_2d	medium: textured 2D quad (rect, uv)
+0x8c0634f8	draw_sprite_2d_ex	medium: textured 2D quad with extra mode arg
+0x8c0637b0	draw_sprite_2d_full	medium: textured 2D quad, colour and mode args
+0x8c063aba	draw_poly_2d_list	medium: 2D polygon from vertex arrays
+0x8c063b5e	draw_billboard_projected	medium: projects with 320/240 centre then draws 2D
+0x8c068240	text_emit_glyphs	medium: glyph quad submission for the text engine
+0x8c064560	text_init	medium: text engine init (called from game_init)
+0x8c0652c0	text_format_draw	high: printf-style formatter with #/$ control codes (size, colour, centre, position)
+0x8c066c58	text_measure	high: formats like text_format_draw and returns width
+0x8c066b44	text_printf	high: varargs wrapper of text_format_draw (70 callers)
+0x8c0681a0	text_printf_centered	high: x -= text_measure()*0.5, then text_format_draw (76 callers)
+0x8c06dd22	tex_create_render_target	medium: creates a texture surface (w,h,format); called with 640x480 and 640x320
+0x8c0639c8	rng_next15	high: LFSR at 0x8c159060 (tap 0x48000000), stepped (timer & 3) times; returns 15 bits. NOT deterministic (GGPO)
+0x8c063a00	rng_next_float	high: same LFSR stepping, returns float in [0,1)
+0x8c220060	sh4_ReadTimer	medium: reads SH4 TMU counter; used to perturb the RNG
+0x8c0318a0	game_set_mode	high: game mode switch; sets camera distance params (500/140, 480/160)
+0x8c01e440	draw_caption_bar	medium: full-width bar {0,402,640,34} via draw_rect_2d
+0x8c0c9e20	ranking_draw_row_bar	medium: full-width row bar {x,y,640,64} in ranking screens
+0x8c0d9340	stage_fx_set_scroll	medium: 640-x / 480-y screen-space effect offsets
+0x8c0cf2c0	stage_fx_smoke_dispatch	medium: SMOKE1P/SMOKE2P screen-space overlays
+# 0x8c0fe6fc renamed to __sdivsi3 in 60-battle.tsv (was a misidentification)

@@ -1,0 +1,50 @@
+# Rollback save state for Soulcalibur (USA T1401N V1.000), v5 (v5: native port with sound, see sc/port/README.md). v1/v2: sc/traces/mem_*.csv (600 fight frames, GAME MODE, battle state 1)
+# and static attribution; v3 + v4: widened and carved out by the multi-combination SyncTest (docs/phase4-ggpo-state.md section 6).
+# Format: start<TAB>end(exclusive)<TAB>decision<TAB>reason
+# decision: include = save/restore and checksum; restore = save/restore only (state the game reads whose
+#           contents also depend on interrupt timing in the emulator); exclude = not part of the state
+# Save point: top of the main loop (after the previous frame's kmRender / frame_end_input_audio).
+#
+# ---- INCLUDE (simulation state) ----
+0x8c1036e0	0x8c21af20	include	game .data: mostly constants, but holds mutable globals (LFSR 0x8c159060, rand 0x8c21aecc, pad copies 0x8c156c80/0x8c159020, CPU AI 0x8c184d80/0x8c185020/0x8c1a6b00, effect lists 0x8c15ef40)
+0x8c00c000	0x8c00f400	restore	SH4 stack: game code reads uninitialized stack slots (0x8c0fea7e, 0x8c0499ec), so stack residue is state
+0x8c0100a0	0x8c010120	include	text engine scratch after the startup header (written by text_measure / 0x8c066420)
+0x8c21eea0	0x8c21eec0	include	library .data word written every frame (verify; tiny)
+0x8c247480	0x8c24a900	include	game BSS part 1a: g_game_pads; player 1 struct 0x8c24a958 follows
+0x8c24a900	0x8c24a920	restore	vsync_callback counters 0x8c24a904/908, read by game code (0x8c0c9450, 0x8c0ae0c4); the port must run vsync_callback exactly once per simulated frame
+0x8c24a920	0x8c24acec	include	game BSS part 1b: game BSS: g_game_pads, both player structs (0x8c24a958, 0x8c253034), battle globals 0x8c25b7xx, render objects, animation/skeleton 0x8c25f120-0x8c26d1a0, HUD state 0x8c28dc00, camera 0x8c3366c0
+0x8c24acec	0x8c24ad2c	restore	player 1 copy of the player-2 residue block below (same code path, not yet observed to differ): stack residue copied by the struct assignment at 0x8c010fa0..0x8c011020 (mov.l @(n,r3)->@(n,r2)); source is a stack local with uninitialised words, and emulator interrupt frames land there at timing-dependent moments (SyncTest VS seed 44, battle state 0x16: 0x8c2533fa 80->00); emulator-only
+0x8c24ad2c	0x8c2533c8	include	game BSS part 1b (continued)
+0x8c2533c8	0x8c253408	restore	stack residue copied by the struct assignment at 0x8c010fa0..0x8c011020 (mov.l @(n,r3)->@(n,r2)); source is a stack local with uninitialised words, and emulator interrupt frames land there at timing-dependent moments (SyncTest VS seed 44, battle state 0x16: 0x8c2533fa 80->00); emulator-only
+0x8c253408	0x8c266ec4	include	game BSS part 1b (continued)
+0x8c266ec4	0x8c266ec8	restore	colour word filled by memcpy 0x8c0fea78 from a stack local with one uninitialised byte; in the emulator interrupt frames land there (port: deterministic with the stack saved)
+0x8c266ec8	0x8c266f54	include	game BSS part 1b (continued)
+0x8c266f54	0x8c266f58	restore	colour word filled by memcpy 0x8c0fea78 from a stack local with one uninitialised byte; in the emulator interrupt frames land there (port: deterministic with the stack saved)
+0x8c266f58	0x8c266fe4	include	game BSS part 1b (continued)
+0x8c266fe4	0x8c266fe8	restore	colour word filled by memcpy 0x8c0fea78 from a stack local with one uninitialised byte; in the emulator interrupt frames land there (port: deterministic with the stack saved)
+0x8c266fe8	0x8c267074	include	game BSS part 1b (continued)
+0x8c267074	0x8c267078	restore	colour word filled by memcpy 0x8c0fea78 from a stack local with one uninitialised byte; in the emulator interrupt frames land there (port: deterministic with the stack saved)
+0x8c267078	0x8c27dc00	include	game BSS part 1b (continued)
+0x8c28de28	0x8c28f344	include	game BSS part 3: HUD player state 0x8c28de28 onward (HUD writes 0x8c28f342 each frame via 0x8c0aabe0)
+0x8c28f344	0x8c28fd60	restore	sound/streaming request queue: entries point into the disc buffers 0x8c27dc00.. and the stream players 0x8c28ddf4, indices advance with GD-ROM DMA / interrupt timing (SyncTest Survival seeds 5 and 34, 4,500 frames: 0x8c28f358..0x8c28f3ac, 0x8c28f77c, 0x8c28f7a4 at battle state 0x18 / 4 frame 1). Read by the sound API 0x8c0a7940 / 0x8c0a77e0; the port reimplements audio, so it must not feed simulation
+0x8c2907a0	0x8c3109a4	include	game BSS part 4: projection / effect work (0x8c2909a0), up to the Maple buffers
+0x8c32a000	0x8c33c840	include	game BSS part 5: camera 0x8c3366c0 and the rest up to library BSS
+0x8c689000	0x8c6a9000	include	heap: effect object pool (window widened after a long run spilled past 0x8c693000) (linked lists, counters, flags) read by 0x8c0adxxx / 0x8c0c246c; pointers to it are stored at 0x8c250260. Was wrongly excluded as render scratch
+0x8c789c40	0x8c81c060	include	heap: buffer reset at round start by 0x8c046e20 (never read in window; cheap insurance)
+0x8c81fc20	0x8c8200c0	include	heap: written at round start by 0x8c0c25c0 / 0x8c0c27f8 (camera setup)
+0x8c8200c0	0x8c8b0000	include	heap below the arena (v5, native port): with the sound driver running, allocations shift and the effect pools start here (SyncTest leak report: effect lists at 0x8c15ef68 point to 0x8c8afxxx)
+0x8c8b0000	0x8cd9e480	include	heap: character/effect arena (particle pools, per-player motion/skeleton/matrix work buffers); block addresses depend on character and mode, so the whole arena up to the Kamui TA buffers is saved
+#
+# ---- EXCLUDE (rebuilt every frame, system, or not simulation) ----
+0x8c27dc00	0x8c28dc00	exclude	streaming audio disc buffers, 4 x 16 KB, filled by GD-ROM DMA
+0x8c28dc00	0x8c28de28	restore	streaming audio player structs 0x8c28dc00 / 0x8c28dd50 (FUN_8c0a8d40; positions advance with DMA/interrupt timing)
+0x8c28fd60	0x8c2907a0	restore	streaming audio request table (0x8c0acbc0 / 0x8c0acd00)
+0x8c3109a4	0x8c328a00	exclude	Maple DMA receive/send buffers passed to pdInitPeripheral by sbInitSystem (hardware input)
+0x8c328a00	0x8c32a000	exclude	GD-ROM file system work buffers passed to gdFsInit
+0x8c00f400	0x8c010000	exclude	low-RAM library trampolines / scratch (0x8c00fa1a)
+0x8c33c840	0x8c391560	exclude	library BSS: pd (PDS_PERIPHERAL 0x8c33d2dc), Maple DMA, sound driver 0x8c37b1c0, GD-ROM 0x8c328a00, DMA 0x8c34e8a0
+0x8c2416e0	0x8c241700	exclude	library data written by the 0x8c00fa1e trampoline
+0x8c246b00	0x8c246b60	restore	SH-4 sound library globals (v5, native port; 0x8c246b08 is its driver handle): rewound with the sound chip, which the native rollback state includes
+0x8c246b60	0x8c246ba0	exclude	Kamui library data (0x8c225184); including Kamui state was tested and made every frame mismatch (render timing stats)
+0x8c246ba0	0x8c246c00	restore	SH-4 sound library globals, continued (v5, native port)
+0x8cd9e480	0x8ce7f560	exclude	heap: Kamui TA vertex buffers (store-queue output, rebuilt each frame)

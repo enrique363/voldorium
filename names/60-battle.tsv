@@ -1,0 +1,28 @@
+# Battle flow, corrections and GGPO-relevant finds. Format: addr<TAB>name<TAB>plate comment
+0x8c0fe6fc	__sdivsi3	high: SHC signed 32-bit division helper (dividend r1, divisor r0, result r0). Was misnamed draw_rect_2d_textured in phase 3
+0x8c0feec4	rand	high: C rand(), LCG x*0x41c64e6d+0x3039 at 0x8c21aecc, returns 15 bits. Second RNG (GGPO state)
+0x8c0211e4	battle_frame	high: GAME MODE per-frame step: battle_state_machine, both fighters' update (0x8c24a958 / 0x8c253034), camera, stage. GGPO simulation step
+0x8c023d20	battle_state_machine	high: switch on battle state 0x8c25b784; always calls draw_caption_bar
+0x8c0246e0	battle_state_round_intro	medium: state 0; round start
+0x8c024a80	battle_state_fight	high: state 1; FIGHT banner + round_check_end
+0x8c022970	round_check_end	high: KO / ring out / time up / perfect evaluation; reads life 0x8c2526ac / 0x8c25ad88
+0x8c024512	banner_battle_fight	high: "BATTLE %d", "FINAL BATTLE", "FIGHT!!" centred text
+0x8c024e00	battle_state_ko	medium: state 10; KO slow-motion and effects
+0x8c0221c0	fighter_update	high: per-fighter logic step (physics, collision, input)
+0x8c0c66e0	camera_update	high: camera mode switch (0x8c3366c4); first game_update subsystem
+0x8c0c44a0	camera_battle	medium: battle camera, reads rounds won
+0x8c05fdc0	stage_wind_update	medium: stage sway driven by RNG and sh4_ReadTimer (non-deterministic)
+0x8c08d7e0	sun_flare_draw	high: lens flare; own screen cull -100..740 x -100..580
+0x8c06e54e	menu_bg_scroll_draw	high: tiled scrolling menu background, wraps at 1024, spans -192..832
+0x8c040036	stage_model_draw	medium: stage model renderer (stage callback tables)
+0x8c05daf2	gallery_sprite_draw	medium: centred textured sprite (museum / gallery)
+0x8c09c620	cpu_ai_think	medium: CPU opponent decision; compares life, uses rng_next15
+0x8c022020	fighter_post_update	low
+0x8c039180	mission_callback	low: entry in callback table 0x8c141460
+0x8c2526ac	g_p1_life	float, max 240 (>= 239.5 = perfect). P2 at +0x86dc (0x8c25ad88). Player-struct offset 0x7d54
+0x8c252610	g_p1_rounds_won	int; rounds needed at 0x8c252614. P2 at +0x86dc
+0x8c25b784	g_battle_state	battle state index used by battle_state_machine
+0x8c13cef4	g_mode_names	74 debug mode names ("GAME INIT", "HOPENING MODE", ...); handler table directly before
+0x8c13c7a4	g_banner_strings	K.O.!!, PERFECT!!, RING OUT!!, TIME UP!! ... banner string tables
+0x8c159060	g_rng_state	LFSR state for rng_next15 / rng_next_float
+0x8c21aecc	g_rand_state	LCG state for rand()

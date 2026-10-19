@@ -1,0 +1,26 @@
+// Windows resources of Voldorium.exe / m1.exe: the icon (art/make_icon.py) and version info.
+// Icon id 1: Explorer, the taskbar and the game window (SDL_HINT_WINDOWS_INTRESOURCE_ICON, render.c).
+1 ICON "voldorium.ico"
+
+1 VERSIONINFO
+FILEVERSION 1,0,0,0
+PRODUCTVERSION 1,0,0,0
+FILEOS 0x40004
+FILETYPE 0x1
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904B0"
+    BEGIN
+      VALUE "FileDescription", "Voldorium"
+      VALUE "ProductName", "Voldorium"
+      VALUE "FileVersion", "1.0"
+      VALUE "ProductVersion", "1.0"
+      VALUE "OriginalFilename", "Voldorium.exe"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x409, 1200
+  END
+END

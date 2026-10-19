@@ -1,0 +1,36 @@
+# Allow list: only the project's own work is versioned. Never the game: no disc dumps, no files
+# extracted from the disc, no code or data translated or decompiled from it, no recordings of it,
+# no builds (the executables contain the translated game code).
+/*
+!/.gitignore
+!/.gitattributes
+!/README.md
+!/NOTICE.md
+!/docs/
+!/ghidra-scripts/
+!/ghidra-run.sh
+!/names/
+!/tools/
+!/ggpo/
+!/third_party/
+!/flycast-trace/
+!/port/
+
+/port/*
+!/port/README.md
+!/port/functions.json
+!/port/sh4c/
+!/port/m0/
+!/port/m1/
+!/port/art/
+!/port/tests/
+!/port/lobby/
+
+# generated from the game's code or data
+/port/sh4c/m0_*.c
+/port/m0/oracle_*.jsonl
+/port/m0/tests.c
+/port/m0/tests_fpu.c
+
+__pycache__/
+*.pyc

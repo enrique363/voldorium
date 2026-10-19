@@ -1,0 +1,7 @@
+# GGPO-relevant finds from sc/traces/mem_*.csv. Format: addr<TAB>name<TAB>plate comment
+0x8c0fef7c	srand	high: sets rand() state 0x8c21aecc; called with 0 from game_init
+0x8c063a7c	rng_next_alt	medium: third LFSR entry; reads sh4_ReadTimer like rng_next15 (4,800 timer reads / 600 frames)
+0x8c0ff350	g2_bus_read	medium: reads AICA RAM/registers over the G2 bus (35,000 reads / 600 frames); sound status
+0x8c046e20	round_buffer_reset	low: writes 599 KB heap buffer 0x8c789c40 at round start (frames 1-8), never read in the capture
+0x8c06b9a0	fx_particles_update	medium: biggest LFSR consumer (33,287 calls / 600 frames); particle/effect system
+0x8c0608c0	battle_timer_entropy	low: inside battle_frame; reads sh4_ReadTimer directly (2,261 reads)

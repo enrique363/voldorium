@@ -1,0 +1,44 @@
+# Katana SDK (Shinobi / Kamui) functions. Format: addr<TAB>name<TAB>plate comment
+# Confidence is in the comment. "high" = behaviour matches the documented API exactly.
+# --- C runtime (Hitachi SHC) ---
+0x8c0101d8	_INITSCT	high: clears BSS and copies ROM data per section table at 0x8c1036e0
+0x8c0101c8	crt_call_init	high: startup calls library init 0x8c21f258
+0x8c0101d0	crt_call_exit	high: startup calls library exit 0x8c21f2d6
+0x8c21f258	crt_lib_init	medium: runs static init list
+0x8c21f2d6	crt_lib_exit	medium: runs exit list
+0x8c0fed6c	memset	high: (dst, value, n)
+# --- Shinobi sy (system) ---
+0x8c2204ec	syHwInit	medium: first call of sbInitSystem; interrupt, chain and timer init
+0x8c220144	syMallocInit	high: (heap start, size) builds 32-byte-unit free list
+0x8c2201f2	syMalloc	high: first-fit allocation from the syMallocInit list
+0x8c22e068	syChainAddHandler	high: (event id, func, priority, arg); event 0x900 = VBlank
+0x8c22e370	syChainDeleteHandler	medium: paired removal used by the vsync-callback setter
+0x8c21fb28	syBtExit	high: calls BIOS vector 0x8c0000e0 with 1 (exit to system menu)
+0x8c0ff2f4	syCblCheck	medium: returns 0 for VGA cable (game picks VGA mode on 0)
+0x8c0fe074	syCblCheckBroadcast	medium: 1/3 mean PAL (game picks PAL mode)
+# --- Shinobi sb (sbinit.c, compiled into the game) ---
+0x8c0c3940	sbInitSystem	high: (display mode, bpp, count): syHwInit, syMallocInit, display init, pdInitPeripheral, gdFsInit with retry, BIOS exit on tray-open
+0x8c0c3a88	sbExitSystem	high: mirror of sbInitSystem shutdown (pdExitPeripheral etc.)
+# --- Shinobi pd (peripheral), pd Ver 1.46 ---
+0x8c21f360	pdInitPeripheral	high: (logic, recvbuf, sendbuf); clears 24 PDS_PERIPHERAL records (0x34 bytes) at 0x8c33d2dc
+0x8c21f8b0	pdExitPeripheral	high: clears all records, stops Maple
+0x8c21f886	pdGetPeripheral	high: returns &peripheral[port] (0x8c33d2dc + port*0x34)
+0x8c21f756	pdExecPeripheralServer	high: per-port on/off/press/release/old update; called once per frame by the game
+0x8c21f4de	pd_ClearPeripheral	medium: internal, resets a record and names it "(no device)"
+0x8c24138c	maple_get_regs	medium: returns Maple DMA register base 0xa05f6c00
+# --- Shinobi gd (GD-ROM) ---
+0x8c21ea88	gdFsInit	medium: called with retries from sbInitSystem; -0x17/-0x21 (tray open / no disc) -> BIOS exit
+# --- Kamui 2 (PowerVR) ---
+0x8c221816	km_InitDisplayMode	high: display mode bits 0x10 = 640 wide (else 320), 0x20 = 480 high (else 240)
+0x8c23c3e4	km_WritePVRReg	high: *(0xa05f8000 + reg) = value
+0x8c23c416	km_ReadPVRReg	high: returns *(0xa05f8000 + reg)
+0x8c223e76	km_SetBorderColorInternal	high: writes PVR BORDER_COL (0x40)
+0x8c222d20	kmSetBorderColor	high: public wrapper of 0x8c223e76, game calls (0) every frame
+0x8c222344	kmSetVSyncCallback	medium: replaces a syChainAddHandler(0x900 VBlank) callback
+0x8c224be0	kmEndScene	medium: terminates the 5 TA polygon lists (OP, OPmod, TR, TRmod, PT) and flips list buffer
+0x8c2246a0	kmRender	medium: waits for previous render, reprograms TA_OL_BASE/ISP_BASE/LIMITs, TA_LIST_INIT
+0x8c224360	km_FlushVertexBuffer	medium: store-queue copy of pending vertices
+0x8c2245a0	km_DMAListsToTA	medium: DMA each pending list to TA FIFO 0x10000000
+0x8c237c68	sh4_DmaToTA	medium: SH4 DMAC ch2 + SB_C2DST to TA FIFO
+0x8c23c03e	sq_Copy32	medium: store-queue copy in 32-byte blocks
+0x8c223f64	km_SetFrameBufferSwap	low: toggles a 0/1 buffer flag

@@ -1,0 +1,22 @@
+# Game (Namco) functions. Format: addr<TAB>name<TAB>plate comment
+0x8c031420	main	high: entry from C runtime; init, per-frame loop, shutdown
+0x8c031540	game_init	high: picks video mode (VGA/NTSC/PAL), sets aspect scale 0x8c266c28/2c, sbInitSystem, heap, subsystem inits
+0x8c031800	game_update	high: per-frame logic tick; returns <0 to quit main loop
+0x8c03e9c0	view_set_camera	high: per-frame camera/view matrix; multiplies columns by aspect scale X (0x8c266c28) / Y (0x8c266c2c)
+0x8c03ed00	render_scene	medium: per-frame draw (fog colour via PVR 0x80b0/0x80b4, fighters, stage)
+0x8c063040	frame_end_input_audio	medium: end of frame; pdExecPeripheralServer, game_read_pads, copy pads to players
+0x8c02014c	screen_fade_draw	high: full-screen fade quad, hard-coded 640x480 (widescreen hook)
+0x8c031740	vsync_callback	high: VBlank handler registered via kmSetVSyncCallback; frame counters
+0x8c041744	game_shutdown_gfx	medium: called after main loop exits
+0x8c0fe0ae	video_detect_mode	high: returns 1 VGA, 2 PAL, 0 NTSC
+0x8c041980	screen_proj_init	high: fills screen struct 0x8c266c10 (640x480, centre 320,240, FOV 55 deg, focal = 320/tan(27.5 deg))
+0x8c041ee0	stage_load_resources	medium: resets fog/stage state, uploads stage textures
+0x8c0b62c0	xform_project_clip	medium: perspective projection/clip; reads focal 0x8c266c20 and aspect scales
+0x8c0b16c6	xform_project_simple	medium: perspective projection; reads focal and aspect scales
+# --- input ---
+0x8c061580	pads_init	high: pdGetPeripheral for each port into 0x8c24a54c; clears game pad records
+0x8c061a20	game_read_pads	high: PDS_PERIPHERAL -> 16-byte game pad record at 0x8c24a4d4 + port*0x10; device-type detection; analog trigger thresholds
+0x8c062f26	pads_copy_to_players	high: copies per-port pad records into both player structs (stride 0x86dc)
+0x8c0614e0	pad_device_type	medium: device type from peripheral name
+0x8c061530	pad_is_special_device	low: name check used to fake an id (0x76503150)
+0x8c03179a	pad_buffer_reset	low: clears pad buffer flags at +0x430..+0x474

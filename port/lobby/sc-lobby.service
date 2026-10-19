@@ -1,0 +1,28 @@
+[Unit]
+Description=Voldorium lobby (UDP 7100) and relay (UDP 7101)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=sclobby
+Group=sclobby
+ExecStart=/usr/bin/python3 /opt/sc-lobby/sc_lobby.py
+Restart=always
+RestartSec=2
+# confinement: nothing to write, no privileges, network only
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryMax=200M
+TasksMax=16
+
+[Install]
+WantedBy=multi-user.target

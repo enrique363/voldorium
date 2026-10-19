@@ -1,0 +1,2 @@
+# sh4_hook points (see SETJMP_FUNCS / HOOKS in sh4c.py)
+8c03144e  # top of main loop: save / load / rollback point (docs/phase4-ggpo-state.md)

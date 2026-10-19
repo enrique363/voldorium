@@ -1,0 +1,17 @@
+# Battle HUD, confirmed by runtime trace sc/traces/hud_trace.csv (Flycast SQ hook, fight frames 120-122)
+# Format: addr<TAB>name<TAB>plate comment
+0x8c0aa4c0	hud_battle_draw	high (trace): battle HUD master, called from game_update subsystem 0x8c01d300. Per player: name text, gauge, plate, gauge layer 2, round markers; then timer via text_printf_centered at (320+shake, 18+shake). Uses rand() for damage-trail jitter
+0x8c01d300	hud_update_dispatch	medium: game_update subsystem that calls hud_battle_draw
+0x8c0ab6bc	hud_draw_player_text	high (trace): name / win-count text. Side 0 from x=16, side 1 right-aligned to x=624 (24 px steps)
+0x8c0aac80	hud_draw_life_gauge	high (trace): life gauge, 12 (x,y) points per side from table 0x8c1f5ac4 (+0x60 per side). P1 x 19.8..271.9, P2 368.1..620.2, y +8 offset
+0x8c0aba80	hud_draw_life_gauge_trail	high (trace): gauge layer 2 / damage trail chunks; runtime corners from per-player HUD state 0x8c28de28 (+0xa94 per side)
+0x8c0ab500	hud_draw_name_plate	high (trace): character name plate texture; side 0 x=26, side 1 x=614-width (width table 0x8c1f6318 by character id at player+0x5c30); y=54+offset
+0x8c0aad54	hud_draw_round_markers	high (trace): round-win markers 20x20; side 0 x=256-n*20, side 1 x=364+n*20; y=58+offset
+0x8c0ab164	hud_draw_team_markers	medium: team-battle (mode 7) member markers; side 0 x=252-k*26, side 1 x=364+k*26
+0x8c0b5c44	hud_emit_sprite_header	medium: writes sprite parameter header (texture/TSP) to the vertex buffer
+0x8c1f5ac4	g_hud_gauge_geom	12 (x,y) float pairs per side, 0x60 bytes per side
+0x8c1f6318	g_hud_plate_width	float width per character id (name plate)
+0x8c28de28	g_hud_player_state	per-player HUD animation state, 0xa94 bytes per side
+0x8c24a914	g_hud_shake_x	HUD shake offset X (added to timer x 320)
+0x8c24a918	g_hud_shake_y	HUD shake offset Y (base y offsets 18/54/58 are added to it)
+0x8c25b7a2	g_round_time_left	seconds left; timer blinks below 10

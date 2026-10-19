@@ -1,0 +1,2 @@
+0x8c010000	start	Program entry (IP.BIN boots 1ST_READ.BIN here)
+0x8c0101a0	sys_start_stub	Startup trampoline after cache enable

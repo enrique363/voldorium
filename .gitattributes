@@ -1,0 +1,7 @@
+# shell scripts must keep LF line endings (Git Bash and WSL run them)
+*.sh text eol=lf
+*.py text eol=lf
+*.c text eol=lf
+*.h text eol=lf
+*.ico binary
+*.png binary
