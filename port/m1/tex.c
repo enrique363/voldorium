@@ -14,6 +14,8 @@
 #include "ta.h"
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
+#include <time.h>
 
 static const u32 vq_mip[11] = { 0x0, 0x1, 0x2, 0x6, 0x16, 0x56, 0x156, 0x556, 0x1556, 0x5556, 0x15556 };
 static const u32 other_mip[11] = { 0x3, 0x4, 0x8, 0x18, 0x58, 0x158, 0x558, 0x1558, 0x5558, 0x15558, 0x55558 };
@@ -162,6 +164,11 @@ typedef struct
 	u64 hash;					/* of the VRAM bytes it was decoded from */
 	u64 pal_hash;				/* of the palette bank it used */
 	unsigned id;
+	unsigned hi_id;				/* the upscaled copy for smoothed 2D drawing (tex_get_hi) */
+	int hi_ok;					/* hi_id holds the current contents */
+	int hi_volatile;			/* changes too often to upscale: an animation, drawn plain */
+	u32 hi_count;				/* upscales since hi_since */
+	u64 hi_since;				/* render count */
 } TexEntry;
 static TexEntry cache[NTEX];
 static u64 decodes, rehashed;
@@ -210,7 +217,7 @@ static u64 bank_hash(u32 tcw)
 
 unsigned gl_upload_texture(unsigned id, u32 w, u32 h, const u32 *rgba);
 
-unsigned tex_get(u32 tcw, u32 tsp)
+static TexEntry *lookup(u32 tcw, u32 tsp)
 {
 	const u32 size = tsp & 63, w = 8u << ((tsp >> 3) & 7), h = 8u << (tsp & 7);
 	const u32 start = (tcw & 0x1fffff) << 3;
@@ -230,14 +237,19 @@ unsigned tex_get(u32 tcw, u32 tsp)
 				e->pal_gen = hw_palette_gen();	/* another bank changed */
 				pal_same = 1;
 			}
+			static long nocache = -2;	/* M1_TEXNOCACHE=tcw (debugging; 1: all): decode every use */
+			if (nocache == -2)
+				nocache = getenv("M1_TEXNOCACHE") ? (long)strtoul(getenv("M1_TEXNOCACHE"), 0, 16) : -1;
+			if (nocache == 1 || (nocache >= 0 && (u32)nocache == tcw))
+				break;
 			const u32 gen = range_gen(e->start, e->span);
 			if (gen == e->gen_sum && pal_same)
-				return e->id;
+				return e;
 			if (hashes && pal_same && range_hash(e->start, e->span) == e->hash)
 			{
 				e->gen_sum = gen;	/* rewritten with the same bytes */
 				rehashed++;
-				return e->id;
+				return e;
 			}
 			break;	/* changed: decode again into this slot */
 		}
@@ -260,6 +272,8 @@ unsigned tex_get(u32 tcw, u32 tsp)
 				   e->used && e->tcw == tcw ? (range_gen(e->start, e->span) != e->gen_sum ? "vram" : "palette") : "new");
 	}
 	e->id = gl_upload_texture(e->used ? e->id : 0, w, hh, buf);
+	if (!e->used || e->tcw != tcw || e->size != size)
+		e->hi_volatile = 0, e->hi_count = 0;	/* another texture in this slot */
 	e->used = 1;
 	e->tcw = tcw;
 	e->size = size;
@@ -269,7 +283,160 @@ unsigned tex_get(u32 tcw, u32 tsp)
 	e->pal_gen = hw_palette_gen();
 	e->hash = range_hash(e->start, e->span);
 	e->pal_hash = pal ? bank_hash(tcw) : 0;
-	return e->id;
+	e->hi_ok = 0;
+	return e;
+}
+
+unsigned tex_get(u32 tcw, u32 tsp) { return lookup(tcw, tsp)->id; }
+
+/* Upscaling for smooth 2D: Catmull-Rom bicubic by k on premultiplied colour, then, for
+   textures whose alpha is only 0 or 255 (glyphs, cut-out shapes), the interpolated alpha
+   steepened around one half, so outlines come out as smooth curves at the original weight
+   instead of blurred steps. Textures with graded alpha (glows, shadows) keep it as is. */
+static float cr_w(float t, int i)
+{
+	/* weights of the four taps at -1, 0, 1, 2 for a sample t in [0, 1) past tap 0 */
+	const float t2 = t * t, t3 = t2 * t;
+	switch (i)
+	{
+	case 0: return -0.5f * t3 + t2 - 0.5f * t;
+	case 1: return 1.5f * t3 - 2.5f * t2 + 1.0f;
+	case 2: return -1.5f * t3 + 2.0f * t2 + 0.5f * t;
+	default: return 0.5f * t3 - 0.5f * t2;
+	}
+}
+
+static void upscale(const u32 *src, u32 w, u32 h, u32 k, u32 *dst)
+{
+	static float *pm, *row;
+	static size_t cap;
+	const size_t need = (size_t)w * k * h * 4;
+	if (need > cap)
+	{
+		cap = need;
+		free(pm);
+		free(row);
+		pm = malloc((size_t)w * h * 4 * sizeof(float));
+		row = malloc(need * sizeof(float));
+	}
+	int binary = 1;
+	for (u32 i = 0; i < w * h; i++)
+	{
+		const u32 c = src[i], a = c >> 24;
+		binary &= a == 0 || a == 255;
+		const float af = a / 255.0f;
+		pm[i * 4 + 0] = (c & 255) * af;
+		pm[i * 4 + 1] = (c >> 8 & 255) * af;
+		pm[i * 4 + 2] = (c >> 16 & 255) * af;
+		pm[i * 4 + 3] = (float)a;
+	}
+	const u32 W = w * k, H = h * k;
+	/* horizontal: W x h */
+	for (u32 y = 0; y < h; y++)
+		for (u32 X = 0; X < W; X++)
+		{
+			const float fx = (X + 0.5f) / k - 0.5f;
+			const int x0 = (int)floorf(fx);
+			const float t = fx - x0;
+			float acc[4] = { 0, 0, 0, 0 };
+			for (int i = 0; i < 4; i++)
+			{
+				int x = x0 - 1 + i;
+				x = x < 0 ? 0 : x >= (int)w ? (int)w - 1 : x;
+				const float wt = cr_w(t, i);
+				for (int c = 0; c < 4; c++)
+					acc[c] += wt * pm[((size_t)y * w + x) * 4 + c];
+			}
+			for (int c = 0; c < 4; c++)
+				row[((size_t)y * W + X) * 4 + c] = acc[c];
+		}
+	/* vertical, then back to straight colour */
+	for (u32 Y = 0; Y < H; Y++)
+	{
+		const float fy = (Y + 0.5f) / k - 0.5f;
+		const int y0 = (int)floorf(fy);
+		const float t = fy - y0;
+		for (u32 X = 0; X < W; X++)
+		{
+			float acc[4] = { 0, 0, 0, 0 };
+			for (int i = 0; i < 4; i++)
+			{
+				int y = y0 - 1 + i;
+				y = y < 0 ? 0 : y >= (int)h ? (int)h - 1 : y;
+				const float wt = cr_w(t, i);
+				for (int c = 0; c < 4; c++)
+					acc[c] += wt * row[((size_t)y * W + X) * 4 + c];
+			}
+			float a = acc[3] < 0 ? 0 : acc[3] > 255 ? 255 : acc[3];
+			u32 rgb[3];
+			for (int c = 0; c < 3; c++)
+			{
+				const float v = a > 0.5f ? acc[c] * 255.0f / a : 0;
+				rgb[c] = v < 0 ? 0 : v > 255 ? 255 : (u32)(v + 0.5f);
+			}
+			if (binary)
+			{
+				/* smoothstep over the middle half of the coverage */
+				float x = (a / 255.0f - 0.25f) * 2.0f;
+				x = x < 0 ? 0 : x > 1 ? 1 : x;
+				a = x * x * (3 - 2 * x) * 255.0f;
+			}
+			dst[(size_t)Y * W + X] = rgb[0] | rgb[1] << 8 | rgb[2] << 16 | (u32)(a + 0.5f) << 24;
+		}
+	}
+}
+
+/* the texture upscaled (4x up to 256 texels, 2x up to 512) for 2D drawn with bilinear
+   filtering at high resolutions (render.c: text and HUD); *scale = the factor,
+   1 when the texture is too large (then it is the plain one) */
+unsigned tex_get_hi(u32 tcw, u32 tsp, int *scale)
+{
+	TexEntry *e = lookup(tcw, tsp);
+	const u32 w = 8u << ((tsp >> 3) & 7), h = (tcw >> 31) ? w : 8u << (tsp & 7);
+	const u32 big = w > h ? w : h;
+	const int k = big <= 256 ? 4 : big <= 512 ? 2 : 1;
+	*scale = k;
+	if (k == 1 || e->hi_volatile)
+	{
+		*scale = 1;
+		return e->id;
+	}
+	if (!e->hi_ok)
+	{
+		/* a texture rewritten every few frames (animated surfaces, palette cycling) is not
+		   text: more than 6 upscales within 300 renders and it stays plain */
+		u64 render_count(void);
+		const u64 now = render_count();
+		if (now - e->hi_since > 300)
+			e->hi_since = now, e->hi_count = 0;
+		if (++e->hi_count > 6)
+		{
+			e->hi_volatile = 1;
+			*scale = 1;
+			return e->id;
+		}
+		static u32 *a, *b;
+		if (!a)
+		{
+			a = malloc(1024 * 1024 * 4 * sizeof(u32));
+			b = malloc(1024 * 1024 * 4 * sizeof(u32));
+		}
+		static int log = -1;	/* M1_HILOG=1: each upscale, with its time */
+		if (log < 0)
+			log = getenv("M1_HILOG") != 0;
+		const clock_t t0 = log ? clock() : 0;
+		decode(tcw, w, h, a);
+		upscale(a, w, h, (u32)k, b);
+		e->hi_id = gl_upload_texture(e->hi_id, w * k, h * k, b);
+		if (log)
+		{
+			u64 render_count(void);
+			printf("hi: render %llu tcw %08x %ux%u x%d %.1f ms\n", (unsigned long long)render_count(), tcw, w, h, k,
+				   (double)(clock() - t0) * 1000.0 / CLOCKS_PER_SEC);
+		}
+		e->hi_ok = 1;
+	}
+	return e->hi_id;
 }
 
 u64 tex_decodes(void) { return decodes; }

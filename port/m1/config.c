@@ -191,6 +191,8 @@ static void apply_settings(void)
 	}
 	if ((v = config_get("video", "msaa")) && atoi(v))
 		env_default("M1_MSAA", v);
+	if ((v = config_get("video", "text")) && !strcmp(v, "sharp"))
+		env_default("M1_SMOOTH2D", "0");	/* smooth (default): upscaled 2D text and HUD, render.c */
 	if ((v = config_get("audio", "enabled")) && !atoi(v))
 		env_default("M1_NOSOUND", "1");
 	env_default("M1_VOLUME", config_get("audio", "volume"));

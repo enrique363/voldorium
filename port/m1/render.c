@@ -116,6 +116,7 @@ static int gl_load(void) { return 1; }
 
 u32 hw_reg(u32 addr);
 unsigned tex_get(u32 tcw, u32 tsp);
+unsigned tex_get_hi(u32 tcw, u32 tsp, int *scale);
 
 static SDL_Window *win;
 static SDL_GLContext glc;
@@ -161,7 +162,7 @@ static const char *fs_src =
 	"uniform sampler2D tex;\n"
 	"uniform int mode;      // texture instruction, -1 = no texture\n"
 	"uniform int flags;     // 1 use alpha, 2 ignore texture alpha, 4 offset colour\n"
-	"uniform float alpha_ref; // < 0: no alpha test\n"
+	"uniform float alpha_ref; // PT_ALPHA_REF (0-255), < 0: no alpha test\n"
 	"uniform int fog;       // TSP fog mode: 1 = per vertex (offset alpha)\n"
 	"uniform vec3 fog_col;  // FOG_COL_VERT\n"
 	"out vec4 frag;\n"
@@ -183,7 +184,9 @@ static const char *fs_src =
 	"    if ((flags & 4) != 0) c.rgb += ofs.rgb;\n"
 	"  }\n"
 	"  if (fog == 1) c.rgb = mix(c.rgb, fog_col, ofs.a);\n"
-	"  if (alpha_ref >= 0.0 && c.a < alpha_ref) discard;\n"
+	"  // the PowerVR compares 8-bit alphas: alpha 1.0 interpolated across a polygon comes out a\n"
+	"  // hair below 1.0 in floats and would fail PT_ALPHA_REF 255\n"
+	"  if (alpha_ref >= 0.0 && floor(c.a * 255.0 + 0.5) < alpha_ref) discard;\n"
 	"  frag = clamp(c, 0.0, 1.0);\n"
 	"}\n";
 
@@ -297,6 +300,18 @@ static void window_fit(void)
 
 int video_is_fullscreen(void) { return win && (SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN_DESKTOP) != 0; }
 
+/* a GRAPHICS change also goes into this process's environment: a restart into or out of an
+   online match (online.c relaunch) inherits it, and the settings file is only read where the
+   environment has nothing */
+static void setting_env(const char *name, const char *value)
+{
+#ifdef _WIN32
+	_putenv_s(name, value);
+#else
+	setenv(name, value, 1);
+#endif
+}
+
 void video_toggle_fullscreen(void)
 {
 	if (!win)
@@ -307,6 +322,7 @@ void video_toggle_fullscreen(void)
 		window_fit();
 	config_set("video", "fullscreen", full ? "1" : "0");
 	config_save();
+	setting_env("M1_FULLSCREEN", full ? "1" : "0");
 }
 
 /* the resolutions offered: native, then the usual 16:9 sizes up to the monitor's */
@@ -351,6 +367,7 @@ void video_next_resolution(void)
 		window_fit();
 	config_set("video", "resolution", v);
 	config_save();
+	setting_env("M1_RESOLUTION", v);
 }
 
 int video_msaa(void) { return msaa < 2 ? 0 : msaa > max_samples ? max_samples : msaa; }
@@ -364,6 +381,7 @@ void video_next_msaa(void)
 	snprintf(v, sizeof(v), "%d", msaa);
 	config_set("video", "msaa", v);
 	config_save();
+	setting_env("M1_MSAA", v);
 }
 
 /* No window: development runs go on headless; the player form says why and stops (running on
@@ -495,8 +513,9 @@ int video_enabled(void)
 	glBindBuffer(GL_ARRAY_BUFFER, vbo);
 	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(TaVert), (void *)0);
 	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(TaVert), (void *)12);
-	glVertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(TaVert), (void *)20);
-	glVertexAttribPointer(3, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(TaVert), (void *)24);
+	/* colours are ARGB words (TaVert): bytes B, G, R, A, so the BGRA layout gives the shader RGBA */
+	glVertexAttribPointer(2, GL_BGRA, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(TaVert), (void *)20);
+	glVertexAttribPointer(3, GL_BGRA, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(TaVert), (void *)24);
 	for (int i = 0; i < 4; i++)
 		glEnableVertexAttribArray(i);
 	for (int i = 0; i < SDL_NumJoysticks(); i++)
@@ -646,7 +665,7 @@ static void set_state(const TaPoly *p, int list)
 		glDisable(GL_BLEND);
 	int flags = ((tsp >> 20) & 1) | (((tsp >> 19) & 1) << 1) | (((isp >> 24) & 1) << 2);
 	glUniform1i(u_flags, flags);
-	glUniform1f(u_alpha_ref, list == 4 ? (hw_reg(0x005f811c) & 255) / 255.0f : -1.0f);
+	glUniform1f(u_alpha_ref, list == 4 ? (float)(hw_reg(0x005f811c) & 255) : -1.0f);
 	glUniform1i(u_fog, (int)((tsp >> 22) & 3));
 	{
 		const u32 fc = hw_reg(0x005f80b4);	/* FOG_COL_VERT */
@@ -669,8 +688,28 @@ static void set_state(const TaPoly *p, int list)
 		return;
 	}
 	glUniform1i(u_mode, (tsp >> 6) & 3);
-	glBindTexture(GL_TEXTURE_2D, tex_get(p->tcw, tsp));
-	const GLint filt = ((tsp >> 13) & 3) ? GL_LINEAR : GL_NEAREST;
+	GLint filt = ((tsp >> 13) & 3) ? GL_LINEAR : GL_NEAREST;
+	/* text and other point-sampled 2D drawn above 640x480 would show each texel as a block: it
+	   gets the texture upscaled by Scale2x (tex.c tex_get_hi) and bilinear filtering, so the
+	   shapes stay the same size with smooth edges; punch-through then keeps texels at least half
+	   opaque, as the filtered edges fall between the two. M1_SMOOTH2D=0 ([video] text = sharp):
+	   off. */
+	static int smooth = -1;
+	if (smooth < 0)
+		smooth = !getenv("M1_SMOOTH2D") || atoi(getenv("M1_SMOOTH2D"));
+	int hi = 1;
+	if (smooth && tgt_w == 640 && vp_h > 600 && p->cls >= M1_2D_HUD && p->cls <= M1_2D_SCREEN)
+	{
+		glBindTexture(GL_TEXTURE_2D, tex_get_hi(p->tcw, tsp, &hi));
+		if (hi > 1)
+		{
+			filt = GL_LINEAR;
+			if (list == 4 && (hw_reg(0x005f811c) & 255) > 128)
+				glUniform1f(u_alpha_ref, 128.0f);
+		}
+	}
+	else
+		glBindTexture(GL_TEXTURE_2D, tex_get(p->tcw, tsp));
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filt);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filt);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, ((tsp >> 16) & 1) ? GL_CLAMP_TO_EDGE : ((tsp >> 18) & 1) ? GL_MIRRORED_REPEAT : GL_REPEAT);
@@ -845,6 +884,14 @@ static void dump_list(TaCtx *c)
 		fprintf(f, "%4u list %u%s isp %08x tsp %08x tcw %08x n %3u  v0 %7.1f %7.1f z %.4g uv %.3f %.3f col %08x ofs %08x  x %.1f..%.1f y %.1f..%.1f z %.4g..%.4g\n",
 				i, p->list, p->sprite ? " spr" : "", p->isp, p->tsp, p->tcw, p->count, v->x, v->y, v->z, v->u, v->v, v->col, v->ofs,
 				x0, x1, y0, y1, z0, z1);
+		if (p->clip)
+			fprintf(f, "      clip %u rect %u %u %u %u%c", p->clip, p->clip_rect[0], p->clip_rect[1], p->clip_rect[2], p->clip_rect[3], 10);
+		if (p->sprite)
+			for (u32 k = 0; k < p->count; k++)
+			{
+				const TaVert *t = &c->v[p->first + k];
+				fprintf(f, "      v%u %7.2f %7.2f z %.4g uv %.4f %.4f%c", k, t->x, t->y, t->z, t->u, t->v, 10);
+			}
 	}
 	{
 		u32 shadowed = 0;
@@ -862,6 +909,43 @@ static void dump_list(TaCtx *c)
 			fprintf(f, "  mv %3u flags %02x  (%.1f %.1f %.5f) (%.1f %.1f %.5f) (%.1f %.1f %.5f)%c", i, c->mvmode[i], t[0], t[1], t[2], t[3],
 					t[4], t[5], t[6], t[7], t[8], 10);
 		}
+	}
+	if (getenv("M1_TEXDUMP"))
+	{
+		/* M1_TEXDUMP=tcw: that texture as decoded now (tex.c), tex_dump.ppm */
+		const u32 want_tcw = (u32)strtoul(getenv("M1_TEXDUMP"), 0, 16);
+		for (u32 i = 0; i < c->np; i++)
+			if (c->p[i].tcw == want_tcw)
+			{
+				u32 tw, th;
+				static u32 px[1024 * 1024];
+				u32 tex_decode_rgba(u32 tcw, u32 tsp, u32 *out, u32 *w, u32 *h);
+				tex_decode_rgba(want_tcw, c->p[i].tsp, px, &tw, &th);
+				FILE *tf = fopen("tex_dump.ppm", "wb");
+				fprintf(tf, "P6\n%u %u\n255\n", tw, th);
+				for (u32 k = 0; k < tw * th; k++)
+				{
+					const u32 a = px[k] >> 24;
+					const u8 rgb[3] = { (u8)((px[k] & 255) * a / 255), (u8)((px[k] >> 8 & 255) * a / 255), (u8)((px[k] >> 16 & 255) * a / 255) };
+					fwrite(rgb, 1, 3, tf);
+				}
+				fclose(tf);
+				tf = fopen("tex_alpha.pgm", "wb");
+				fprintf(tf, "P5\n%u %u\n255\n", tw, th);
+				for (u32 k = 0; k < tw * th; k++)
+					fputc((int)(px[k] >> 24), tf);
+				fclose(tf);
+				printf("texdump: PT_ALPHA_REF %08x PAL_RAM_CTRL %08x\n", hw_reg(0x005f811c), hw_reg(0x005f8108));
+				break;
+			}
+	}
+	{
+		/* the palette RAM (1024 words) and PAL_RAM_CTRL */
+		FILE *pf = fopen("pal_dump.txt", "w");
+		fprintf(pf, "PAL_RAM_CTRL %08x%c", hw_reg(0x005f8108), 10);
+		for (u32 i = 0; i < 1024; i++)
+			fprintf(pf, "%08x%c", hw_reg(0x005f9000u + 4 * i), i % 16 == 15 ? 10 : ' ');
+		fclose(pf);
 	}
 	fclose(f);
 	f = fopen("vram_dump.bin", "wb");
@@ -1332,7 +1416,28 @@ static void draw_lists(TaCtx *c)
 			const TaPoly *p = &c->p[idx[j]];
 			if (p->count < 3 || (replaced == 1 && bg_layer[idx[j]]))
 				continue;	/* a replaced background's own pieces */
+			static int skip_list = -2;	/* M1_SKIPLIST=n (debugging): leave out display list n */
+			if (skip_list == -2)
+				skip_list = getenv("M1_SKIPLIST") ? atoi(getenv("M1_SKIPLIST")) : -1;
+			if ((int)p->list == skip_list)
+				continue;
 			set_state(p, p->list);
+			{
+				/* M1_FLATPOLY=a:b (debugging): polygons a..b without their texture */
+				static int fa = -2, fb = -1;
+				if (fa == -2)
+				{
+					fa = -1;
+					if (getenv("M1_FLATPOLY"))
+						sscanf(getenv("M1_FLATPOLY"), "%d:%d", &fa, &fb);
+				}
+				if ((int)idx[j] >= fa && (int)idx[j] <= fb)
+				{
+					if (!getenv("M1_FLATKEEPTEX"))
+						glUniform1i(u_mode, -1);
+					glUniform1f(u_alpha_ref, -1.0f);
+				}
+			}
 			float xa, xk, ua, uk;
 			wide_map(c, p, &xa, &xk, &ua, &uk);
 			if (replaced == 2 && bg_layer[idx[j]])

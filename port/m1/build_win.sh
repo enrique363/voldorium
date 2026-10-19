@@ -28,14 +28,15 @@ done
 # lobby build key: players only see and match copies built from the same sources and state table
 SCB=$(cat m1/*.c m1/*.h m1/*.S sh4c/sh4rt.h ../ggpo/savestate_ranges.tsv | sha1sum | cut -c1-12)
 for f in m1/m1.c m1/hw.c m1/hle.c m1/threads.c m1/maple.c m1/ta.c m1/tex.c m1/render.c m1/state.c m1/netplay.c m1/aica.c m1/arm7.c m1/config.c m1/online.c m1/artdump.c m1/artswap.c m1/png.c; do
-  $CC ${CF/-w/} -Wall -I $SDL/include -I $ENG/ggpo/src/include -I m1 -DSC_BUILD_ID=\"$SCB\" -c -o $O/m1_$(basename $f .c).o $f &
+  opt=""; [ $f = m1/tex.c ] && opt=-O2	# texture upscaling (render only, not game state)
+  $CC ${CF/-w/} $opt -Wall -I $SDL/include -I ../third_party/ggpo/src/include -I m1 -DSC_BUILD_ID=\"$SCB\" -c -o $O/m1_$(basename $f .c).o $f &
 done
 $CC -c -o $O/sjlj_win64.o m1/sjlj_win64.S &
 # the icon and version info (m1/voldorium.rc, icon drawn by art/make_icon.py)
 $LLVM_MINGW/bin/x86_64-w64-mingw32-windres -I m1 -O coff -o $O/voldorium_res.o m1/voldorium.rc &
 wait
 # 64 MB main stack (Linux gives 8 MB; the SDK threads get 8 MB fibers)
-# GGPO (engines/ggpo, C++): its static library is built by m1/build_ggpo.sh; link with clang++
+# GGPO (third_party/ggpo, C++): its static library is built by m1/build_ggpo.sh; link with clang++
 LIBS="$OUT/ggpo/libggpo.a -L $SDL/lib -lSDL2 -lopengl32 -lwinmm -lws2_32 -lcomdlg32 -lgdi32 -static-libstdc++ -static-libgcc -Wl,--stack,67108864"
 ${CC}++ -o $OUT/m1.exe $O/*.o $LIBS
 # the player's executable: same code, GUI subsystem (no console window; the log goes to m1_log.txt)

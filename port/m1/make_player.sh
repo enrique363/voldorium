@@ -34,6 +34,7 @@ resolution = native
 window = 1280x720
 msaa = 4
 backgrounds = stretch
+text = smooth
 
 [audio]
 enabled = 1
@@ -106,6 +107,10 @@ they fill 16:9. stretch (default): the picture is stretched to full width. blur:
 blurred sides. replace: a 16:9 version replaces the picture where there is one (blurred sides
 elsewhere): put <name>.png in the art16x9 folder (names in art16x9/refs.txt, any 16:9 size,
 the original picture centred at the same scale).
+
+Text: menu and HUD text is drawn from upscaled copies of the game's font textures, so it keeps
+its size with smooth edges at high resolutions. [video] text = sharp draws it as the original
+pixels instead.
 
 Manual connection (GGPO rollback, any network)
 ----------------------------------------------

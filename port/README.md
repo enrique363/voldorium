@@ -687,6 +687,33 @@ between two machines over the internet (see `build/player/README.txt` for the ch
 Not checked against the no-stretch rule yet: the gallery, mission and option screens (the test
 scripts do not reach them).
 
+## Missing text, colours, smooth text (2026-10-19)
+
+- **Missing text** (gallery descriptions, the VS screen's score and DRAW count, TEAM BATTLE's
+  title, the gallery's "?" thumbnails): punch-through polygons with PT_ALPHA_REF 255 (only fully
+  opaque texels pass). The shader compared floats, and a vertex alpha of 1.0 interpolated with
+  perspective (`col * iw`, then `* w`) comes out 0.99999994 at some depths: the title at 1/w 2000
+  passed, the text at 600 was dropped. The test now compares 8-bit values, as the PowerVR does
+  (`floor(a * 255 + 0.5) < PT_ALPHA_REF`). Found with `M1_FLATPOLY=a:b` (draw polygons a..b
+  untextured; `M1_FLATKEEPTEX=1` keeps the texture but skips the alpha test), `M1_TEXDUMP=tcw`
+  (the texture as decoded, with its alpha), `M1_SKIPLIST=n`, `M1_TEXNOCACHE=tcw|1`, and the list
+  dump's new clip, sprite corner and palette RAM output.
+- **Colours**: vertex colours are ARGB words, but went to OpenGL as RGBA bytes, so red and blue
+  were swapped in every vertex colour (the VS screen's blue VERSUS BATTLE bar was red, yellow
+  gallery text cyan, the red NEW labels blue). The attributes now use the GL_BGRA layout.
+- **Smooth text**: 2D polygons of the known 2D classes (HUD, primitives, screens) drawn above
+  600 lines use an upscaled copy of their texture (`tex.c tex_get_hi`: 4x up to 256 texels, 2x
+  up to 512): Catmull-Rom on premultiplied colour, and for 0/255-alpha textures the coverage
+  steepened around one half, so glyphs keep their size and weight with smooth outlines; drawn
+  with bilinear filtering, punch-through at alpha 128. A texture upscaled more than 6 times in
+  300 renders (animations) stays plain. About 40 upscales in an arcade run, at most 16 ms each,
+  once (tex.c is built at -O2). `[video] text = sharp` (M1_SMOOTH2D=0) turns it off.
+- **Anti-aliasing**: checked outside online matches (a fight frame at 4x differs from no MSAA on
+  13,500 edge pixels). A GRAPHICS change was only saved to the ini, so the restart into an online
+  match inherited the old `M1_MSAA` / `M1_RESOLUTION` / `M1_FULLSCREEN`; the change now updates
+  the environment too. MSAA smooths polygon edges, not the pixels inside textures (text).
+- `build_win.sh` takes GGPO's headers from `third_party/ggpo` (it still pointed at `engines/`).
+
 ## Every mode reachable, second controller (2026-10-19)
 
 - **Missing functions**: modes stopped with "no translated function" (one report: 0x8C05A826,
