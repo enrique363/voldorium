@@ -119,13 +119,13 @@ unsigned tex_get(u32 tcw, u32 tsp);
 
 static SDL_Window *win;
 static SDL_GLContext glc;
-static SDL_GameController *pad;
+static SDL_GameController *pads[2];	/* player 1 (with the keyboard), player 2 */
 static int enabled = -1;
 static GLuint prog, vao, vbo;
 static GLint u_tex, u_mode, u_flags, u_alpha_ref, u_target, u_xmap, u_umap, u_xoff, u_fog, u_fog_col, u_ymap;
 /* viewport of the current target, for user tile clip scissors */
 static int vp_x, vp_y, vp_w, vp_h, tgt_w = 640, tgt_h = 480;
-static u32 buttons;
+static u32 buttons, buttons_b;	/* window input: player 1 (keyboard, first controller), player 2 */
 static u64 rendered;
 static u32 shots[64];
 static int nshots;
@@ -378,6 +378,57 @@ static int video_fail(const char *what)
 	return enabled = 0;
 }
 
+/* game controllers: the first one plays with the keyboard as player 1, the second is player 2
+   (port B, present while it is connected) */
+static void pad_added(int index)
+{
+	if (!SDL_IsGameController(index))
+		return;
+	const SDL_JoystickID id = SDL_JoystickGetDeviceInstanceID(index);
+	for (int k = 0; k < 2; k++)
+		if (pads[k] && SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pads[k])) == id)
+			return;	/* already open */
+	for (int k = 0; k < 2; k++)
+		if (!pads[k])
+		{
+			pads[k] = SDL_GameControllerOpen(index);
+			return;
+		}
+}
+static void pad_removed(SDL_JoystickID id)
+{
+	for (int k = 0; k < 2; k++)
+		if (pads[k] && SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pads[k])) == id)
+		{
+			SDL_GameControllerClose(pads[k]);
+			pads[k] = 0;
+		}
+}
+static u32 pad_bits(SDL_GameController *pad)
+{
+	if (!pad)
+		return 0;
+	u32 b = 0;
+	/* left stick as the D-pad */
+	const int dz = 16000;
+	const int ax = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTX), ay = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTY);
+	if (ax < -dz) b |= 0x0040;
+	if (ax > dz) b |= 0x0080;
+	if (ay < -dz) b |= 0x0010;
+	if (ay > dz) b |= 0x0020;
+	static const struct { int btn; u32 bit; } map[] = {
+		{ SDL_CONTROLLER_BUTTON_A, 0x0004 }, { SDL_CONTROLLER_BUTTON_B, 0x0002 },
+		{ SDL_CONTROLLER_BUTTON_X, 0x0400 }, { SDL_CONTROLLER_BUTTON_Y, 0x0200 },
+		{ SDL_CONTROLLER_BUTTON_START, 0x0008 }, { SDL_CONTROLLER_BUTTON_DPAD_UP, 0x0010 },
+		{ SDL_CONTROLLER_BUTTON_DPAD_DOWN, 0x0020 }, { SDL_CONTROLLER_BUTTON_DPAD_LEFT, 0x0040 },
+		{ SDL_CONTROLLER_BUTTON_DPAD_RIGHT, 0x0080 },
+	};
+	for (unsigned i = 0; i < sizeof(map) / sizeof(map[0]); i++)
+		if (SDL_GameControllerGetButton(pad, map[i].btn))
+			b |= map[i].bit;
+	return b;
+}
+
 int video_enabled(void)
 {
 	if (enabled >= 0)
@@ -449,8 +500,7 @@ int video_enabled(void)
 	for (int i = 0; i < 4; i++)
 		glEnableVertexAttribArray(i);
 	for (int i = 0; i < SDL_NumJoysticks(); i++)
-		if (SDL_IsGameController(i) && (pad = SDL_GameControllerOpen(i)))
-			break;
+		pad_added(i);
 	return enabled;
 }
 
@@ -533,41 +583,24 @@ void video_poll(void)
 				m1_stop("quit (Esc)");
 			}
 		}
-		if (e.type == SDL_CONTROLLERDEVICEADDED && !pad)
-			pad = SDL_GameControllerOpen(e.cdevice.which);
+		if (e.type == SDL_CONTROLLERDEVICEADDED)
+			pad_added(e.cdevice.which);
+		if (e.type == SDL_CONTROLLERDEVICEREMOVED)
+			pad_removed(e.cdevice.which);
 	}
 	const u8 *k = SDL_GetKeyboardState(0);
 	u32 b = 0;
 	for (unsigned i = 0; i < sizeof(keymap) / sizeof(keymap[0]); i++)
 		if (k[keymap[i].key] && !(keymap[i].bit == 0x0008 && (SDL_GetModState() & KMOD_ALT)))
 			b |= keymap[i].bit;
-	if (pad)
-	{
-		/* left stick as the D-pad */
-		const int dz = 16000;
-		const int ax = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTX), ay = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTY);
-		if (ax < -dz) b |= 0x0040;
-		if (ax > dz) b |= 0x0080;
-		if (ay < -dz) b |= 0x0010;
-		if (ay > dz) b |= 0x0020;
-	}
-	if (pad)
-	{
-		static const struct { int btn; u32 bit; } map[] = {
-			{ SDL_CONTROLLER_BUTTON_A, 0x0004 }, { SDL_CONTROLLER_BUTTON_B, 0x0002 },
-			{ SDL_CONTROLLER_BUTTON_X, 0x0400 }, { SDL_CONTROLLER_BUTTON_Y, 0x0200 },
-			{ SDL_CONTROLLER_BUTTON_START, 0x0008 }, { SDL_CONTROLLER_BUTTON_DPAD_UP, 0x0010 },
-			{ SDL_CONTROLLER_BUTTON_DPAD_DOWN, 0x0020 }, { SDL_CONTROLLER_BUTTON_DPAD_LEFT, 0x0040 },
-			{ SDL_CONTROLLER_BUTTON_DPAD_RIGHT, 0x0080 },
-		};
-		for (unsigned i = 0; i < sizeof(map) / sizeof(map[0]); i++)
-			if (SDL_GameControllerGetButton(pad, map[i].btn))
-				b |= map[i].bit;
-	}
+	b |= pad_bits(pads[0]);
+	buttons_b = pad_bits(pads[1]);
 	buttons = b;
 }
 
 u32 video_buttons(void) { return buttons; }
+u32 video_buttons_b(void) { return buttons_b; }
+int video_port_b(void) { static int forced = -1; if (forced < 0) forced = getenv("M1_PORT_B") != 0; return pads[1] != 0 || forced; }	/* M1_PORT_B: tests, an idle player 2 */
 
 /* netplay status in the window title (netplay.c); also pumps events while waiting */
 void video_title(const char *status)

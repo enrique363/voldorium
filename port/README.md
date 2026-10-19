@@ -687,6 +687,26 @@ between two machines over the internet (see `build/player/README.txt` for the ch
 Not checked against the no-stretch rule yet: the gallery, mission and option screens (the test
 scripts do not reach them).
 
+## Every mode reachable, second controller (2026-10-19)
+
+- **Missing functions**: modes stopped with "no translated function" (one report: 0x8C05A826,
+  called from `mode_kmaster_mode` through a table). Ghidra finds functions through direct calls;
+  routines a mode keeps in a table of function pointers, or stores as a callback from a literal
+  pool, were never translated. `tools/find_entries.py` finds them: runs of words pointing into the
+  code blocks that hold at least one known entry, plus code addresses in the literal pools of
+  known functions; each is kept when its code decodes cleanly (known, unprivileged instructions,
+  ending in a return or jump), repeated until nothing new turns up. 150 entries (96 from tables,
+  54 from literal pools) went into `sh4c/extra_entries.txt`; the sweep has no unresolved targets.
+  `tests/modes.sh` picks every main menu entry and taps A into it: all 11 run 60 s without a stop.
+- **Controls**: the game confirms with A everywhere except the main menu, where Start also works;
+  pressing Enter (Start) on the Options screen does nothing, which looks like a dead screen. The
+  player README now says so (Z or the controller's A confirms, X / B goes back).
+- **Player 2**: port B had a controller only in netplay, so VS BATTLE showed "A Controller was
+  removed". A second game controller is now player 2 (port B present while it is connected;
+  `render.c` `pads[2]`, hot-plug by instance id); `M1_PORT_B=1` gives tests an idle player 2.
+- **Scripted pads**: each M1_PADS step logs its poll, render count and mode (`pads: step ...`),
+  so screenshots (render counts) can be matched to presses (poll counts).
+
 ## Voldorium: name, icon, lobby polish (2026-10-19)
 
 - **Name**: the player build is **Voldorium** (no trademark in the product name): `Voldorium.exe`
@@ -888,13 +908,16 @@ traversal), and a lobby between two PCs.
 
 | Script | What | Expect |
 | --- | --- | --- |
-| `tests/run_all.sh` | build, then everything below (about 11 minutes) | |
+| `tests/run_all.sh` | build, then everything below (about 16 minutes) | |
 | `tests/oracle.sh` | WSL: Linux build, broad oracle replay, M0 integer and FPU suites | 5,577 exact + 162 HLE boundaries; 683/683; 2,800/2,800 |
 | `tests/synctest.sh [s]` | fight SyncTest | all frames identical |
 | `tests/netplay.sh [s]` | two peers, 100 ms simulated latency, both pressing buttons | identical checksums, about 200 rollbacks each |
 | `tests/screens.sh` | title, character select, fight (16:9) | `build/tests/screen_wide_*.png` |
 | `tests/artdump.sh [s]` | export of the 4:3 artwork per screen | `build/art/index.html` |
 | `tests/lobby.sh [s]` | two copies meet in the Online Versus lobby, challenge, accept, VS fight | same boot loop, identical checksums |
+| `tests/lobby_inet.sh direct\|relay [s]` | the same through a local lobby server | identical checksums |
+| `tests/lobby_drop.sh [s]` | one side's match closes mid-fight | the other is back in the main menu |
+| `tests/modes.sh [s] [entries]` | every main menu entry, A taps into the mode | no stop before the time limit; `build/tests/modes/<n>/shot_*.png` |
 
 ## Pieces
 

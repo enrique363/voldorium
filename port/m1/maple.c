@@ -1,4 +1,4 @@
-/* Maple bus: a standard controller in port A (and port B in netplay), and a VMU (memory card)
+/* Maple bus: a standard controller in port A (and port B in netplay or with a second game controller), and a VMU (memory card)
  * in port A's first expansion slot when M1_VMU names its file.
  *
  * A maple DMA (SB_MDST, 005F6C18) walks the descriptor list at SB_MDSTAR (005F6C04):
@@ -85,9 +85,19 @@ static void load_script(void)
 static u32 pressed_now(void)
 {
 	u32 b = 0;
+	int k = -1;
 	for (int i = 0; i < nscript; i++)
 		if (script[i].frame <= conditions)
-			b = script[i].buttons;
+			b = script[i].buttons, k = i;
+	/* tests: when each scripted step starts, against the render count of M1_SHOTS and the mode */
+	static int logged = -1;
+	if (k != logged)
+	{
+		u64 render_count(void);
+		logged = k;
+		printf("pads: step %d at poll %llu: buttons %03x (render %llu, mode %u)\n", k, (unsigned long long)conditions, b,
+			   (unsigned long long)render_count(), rd32(0x8c24a584));
+	}
 	return b;
 }
 
@@ -105,6 +115,7 @@ static void wstr(const char *s, u32 n)
 }
 
 extern int m1_net_active;
+int video_port_b(void);
 extern u16 net_pads[2];
 
 /* netplay.c: the script's buttons at a netplay frame (in M1_NET mode M1_PADS counts those) */
@@ -139,7 +150,9 @@ static u32 controller(u32 cmd, u32 port)
 	{
 		/* script and live window input; in netplay the synchronised inputs of both players */
 		u32 vmu_autostart(void);
-		const u32 pressed = m1_net_active ? net_pads[port & 1] : pressed_now() | video_buttons() | vmu_autostart();
+		u32 video_buttons_b(void);
+		const u32 pressed = m1_net_active ? net_pads[port & 1]
+			: port ? video_buttons_b() : pressed_now() | video_buttons() | vmu_autostart();
 		if (port == 0)
 			conditions++;
 		w32(MFID_INPUT);
@@ -356,7 +369,7 @@ void maple_dma(void)
 				for (u32 i = 0; i < outlen; i++)
 					wr8(reply + 4 + i, out[i]);
 			}
-			else if ((port == 0 || (port == 1 && m1_net_active)) && main_unit)	/* port B: netplay */
+			else if ((port == 0 || (port == 1 && (m1_net_active || video_port_b()))) && main_unit)	/* port B: netplay, or a second controller */
 			{
 				outlen = 0;
 				const u32 resp = controller(cmd, port);
