@@ -62,8 +62,8 @@ the first build. Nothing else has to be installed.
 2. Double-click **`Build Voldorium.bat`** in the unzipped folder. You can also drop your `.gdi`
    file onto it.
 3. Choose your `.gdi` file when it asks.
-4. Wait. The first build downloads its tools (about 200 MB, once) and then takes from one to
-   about ten minutes, depending on the PC. When it is done, the **`Voldorium`** folder opens:
+4. Wait. The first build downloads its tools (about 220 MB, once) and then takes from about a
+   minute to ten, depending on the PC. When it is done, the **`Voldorium`** folder opens:
    start `Voldorium.exe`.
 
 What the builder does, so you know what runs on your PC:
@@ -78,8 +78,9 @@ What the builder does, so you know what runs on your PC:
 | 5. Player folder | Puts the game, `SDL2.dll`, the font, `voldorium.ini` and `README.txt` in `Voldorium/`. |
 
 Run it again after updating the repository: finished steps are skipped and your settings and
-memory card in `Voldorium/` are kept. Everyone who builds the same version gets the same
-program, which is what the online lobby needs to match players.
+memory card in `Voldorium/` are kept. Builds are reproducible: everyone who builds the same
+version gets a byte-identical `Voldorium.exe` (pinned tools, no time stamps or folder names in
+it), which is what the online lobby needs to match players.
 
 ### Troubleshooting
 

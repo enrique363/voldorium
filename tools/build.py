@@ -38,13 +38,14 @@ CACHE = os.path.join(SC, 'toolchain')
 LOCAL = os.environ.get('LOCALAPPDATA') or os.path.expanduser('~')
 OUT = os.path.join(LOCAL, 'sc-m1')          # objects and executables (outside the repository)
 
-# pinned downloads: name -> (url, sha256, folder inside toolchain/ once unpacked)
+# pinned downloads: name -> (url, sha256, folder inside toolchain/ once unpacked). The SHA-256s are
+# the ones GitHub publishes for the release files, and for Flycast's two files those of its commit
 FLYCAST_COMMIT = '5aa091fde632fb332c8d8c34e280d62dc951954c'
 PINNED = {
     'llvm-mingw': ('https://github.com/mstorsjo/llvm-mingw/releases/download/20260922/llvm-mingw-20260922-ucrt-x86_64.zip',
-                   None, 'llvm-mingw-20260922-ucrt-x86_64'),
+                   'e3ad77d117a4bea19a7a3b333341824d79a5a371004a10e25b8504e7b3047666', 'llvm-mingw-20260922-ucrt-x86_64'),
     'sdl2': ('https://github.com/libsdl-org/SDL/releases/download/release-2.32.10/SDL2-devel-2.32.10-mingw.zip',
-             None, 'SDL2-2.32.10'),
+             'f15cff5fca62ec9381a016ef1d42a95c638cd72d2f226ba5781c76fe43dbd1ac', 'SDL2-2.32.10'),
     'fsca-table.h': ('https://raw.githubusercontent.com/flyinghead/flycast/%s/core/hw/sh4/fsca-table.h' % FLYCAST_COMMIT,
                      '2ab87d6df67546c8a27febafb2c2e520fd1266b91633e4edfa8ec48b58218300', 'flycast/core/hw/sh4'),
     'biosfont.bin.zip': ('https://raw.githubusercontent.com/flyinghead/flycast/%s/fonts/biosfont.bin.zip' % FLYCAST_COMMIT,
@@ -90,10 +91,8 @@ def download(name):
                 fail('could not download %s (%s). Check the internet connection and run the builder again.' % (url, e))
             time.sleep(3)
     digest = hashlib.sha256(data).hexdigest()
-    if sha and digest != sha:
+    if digest != sha:
         fail('%s does not match its pinned SHA-256 (got %s). The download was damaged or changed; nothing was used.' % (name, digest))
-    if not sha:
-        say('  (no pinned SHA-256 yet for %s: %s)' % (name, digest))
     say('  %s: %.1f MB, SHA-256 ok' % (name, len(data) / 1e6))
     return data
 
@@ -206,19 +205,19 @@ def step_ggpo(llvm):
     cpp = []
     for sub in ('src/lib/ggpo', 'src/lib/ggpo/backends', 'src/lib/ggpo/network'):
         d = os.path.join(src, sub)
-        cpp += [os.path.join(d, f) for f in sorted(os.listdir(d)) if f.endswith('.cpp') and 'platform_linux' not in f]
-    if not newer(lib, cpp):
+        cpp += [sub + '/' + f for f in sorted(os.listdir(d)) if f.endswith('.cpp') and 'platform_linux' not in f]   # relative: asserts name the file
+    if not newer(lib, [os.path.join(src, f) for f in cpp]):
         say('[3/5] GGPO already built')
         return
     say('[3/5] Building GGPO (rollback netcode)...')
     os.makedirs(os.path.dirname(lib), exist_ok=True)
     cxx = os.path.join(llvm, 'bin', 'x86_64-w64-mingw32-clang++')
     objs = [os.path.join(OUT, 'ggpo', os.path.basename(f)[:-4] + '.o') for f in cpp]
-    parallel([([cxx, '-O2', '-w', '-std=c++14', '-D_WINDOWS', '-I', 'src/include', '-I', 'src/lib/ggpo', '-c', '-o', o, f], src)
+    parallel([([cxx, '-O2', '-w', '-std=c++14', '-D_WINDOWS', '-mno-incremental-linker-compatible', '-ffile-prefix-map=%s=.' % src, '-I', 'src/include', '-I', 'src/lib/ggpo', '-c', '-o', o, f], src)
               for f, o in zip(cpp, objs)])
     if os.path.exists(lib):
         os.remove(lib)
-    run([os.path.join(llvm, 'bin', 'llvm-ar'), 'rcs', lib] + objs, cwd=src)
+    run([os.path.join(llvm, 'bin', 'llvm-ar'), 'rcsD', lib] + objs, cwd=src)   # D: no time stamps
 
 
 def step_game(llvm, sdl, fsca_dir, font_zip):
@@ -227,7 +226,9 @@ def step_game(llvm, sdl, fsca_dir, font_zip):
     os.makedirs(obj, exist_ok=True)
     os.makedirs(os.path.join(PORT, 'build', 'm1'), exist_ok=True)
     cc = os.path.join(llvm, 'bin', 'x86_64-w64-mingw32-clang')
-    cf = ['-O1', '-ffp-contract=off', '-fno-strict-aliasing', '-I', 'sh4c', '-DSH4_TAG_WRITES']
+    # reproducible: no time stamps in objects or executables, so the same sources build the same bytes
+    cf = ['-O1', '-ffp-contract=off', '-fno-strict-aliasing', '-I', 'sh4c', '-DSH4_TAG_WRITES', '-mno-incremental-linker-compatible',
+          '-ffile-prefix-map=%s=.' % PORT]   # and no folder names (they would carry the user's name)
     jobs = []
     # translated code: only what changed (it is large)
     sweep = os.path.join(PORT, 'build', 'sweep')
@@ -244,14 +245,15 @@ def step_game(llvm, sdl, fsca_dir, font_zip):
         opt = ['-O2'] if name == 'tex' else []   # texture upscaling (drawing only, not game state)
         jobs.append(([cc] + cf + opt + ['-Wall', '-I', os.path.join(sdl, 'include'), '-I', os.path.join(SC, 'third_party', 'ggpo', 'src', 'include'),
                       '-I', 'm1', '-DSC_BUILD_ID="%s"' % bid, '-c', '-o', os.path.join(obj, 'm1_%s.o' % name), 'm1/%s.c' % name],))
-    jobs.append(([cc, '-c', '-o', os.path.join(obj, 'sjlj_win64.o'), 'm1/sjlj_win64.S'],))
+    jobs.append(([cc, '-mno-incremental-linker-compatible', '-c', '-o', os.path.join(obj, 'sjlj_win64.o'), 'm1/sjlj_win64.S'],))
     jobs.append(([os.path.join(llvm, 'bin', 'x86_64-w64-mingw32-windres'), '-I', 'm1', '-O', 'coff', '-o',
                   os.path.join(obj, 'voldorium_res.o'), 'm1/voldorium.rc'],))
     t = time.time()
     parallel(jobs)
     objs = sorted(os.path.join(obj, f) for f in os.listdir(obj) if f.endswith('.o'))
     libs = [os.path.join(OUT, 'ggpo', 'libggpo.a'), '-L', os.path.join(sdl, 'lib'), '-lSDL2', '-lopengl32', '-lwinmm', '-lws2_32',
-            '-lcomdlg32', '-lgdi32', '-static-libstdc++', '-static-libgcc', '-Wl,--stack,67108864']   # 64 MB main stack
+            '-lcomdlg32', '-lgdi32', '-static-libstdc++', '-static-libgcc', '-Wl,--stack,67108864',   # 64 MB main stack
+            '-Wl,--no-insert-timestamp']
     run([cc + '++', '-o', os.path.join(OUT, 'm1.exe')] + objs + libs)
     run([cc + '++', '-mwindows', '-o', os.path.join(OUT, 'Voldorium.exe')] + objs + libs)   # no console window
     shutil.copy2(os.path.join(sdl, 'bin', 'SDL2.dll'), OUT)

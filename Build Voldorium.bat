@@ -25,8 +25,8 @@ if not defined PY (
   powershell -NoProfile -ExecutionPolicy Bypass -Command ^
     "$ErrorActionPreference='Stop'; $u='https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip';" ^
     "$z=Join-Path $env:TEMP 'voldorium-python.zip'; Invoke-WebRequest -UseBasicParsing $u -OutFile $z;" ^
-    "$h=(Get-FileHash $z -Algorithm SHA256).Hash.ToLower(); $want='PYTHON_SHA256';" ^
-    "if ($want -ne 'PYTHON_SHA256' -and $h -ne $want) { throw ('python download does not match its SHA-256: ' + $h) };" ^
+    "$h=(Get-FileHash $z -Algorithm SHA256).Hash.ToLower(); $want='4acbed6dd1c744b0376e3b1cf57ce906f9dc9e95e68824584c8099a63025a3c3';" ^
+    "if ($h -ne $want) { Remove-Item $z; throw ('python download does not match its SHA-256: ' + $h) };" ^
     "Expand-Archive $z -DestinationPath 'toolchain\python' -Force; Remove-Item $z"
   if errorlevel 1 goto failed
   set "PY=toolchain\python\python.exe"

@@ -14,6 +14,9 @@ All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); 
 
 ### Changed
 - The online build key ignores line endings, so every checkout of the same sources matches.
+- Reproducible builds: no time stamps or folder names in the executables (they held the build
+  folder's path, and so the user name), so the same version builds byte-identical files on
+  every PC.
 
 ## 1.0.2 (2026-10-19)
 
