@@ -30,6 +30,8 @@ All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); 
   in `voldorium.ini` restores the original pixels.
 - **Version number** in the window title ("Voldorium ver. 1.0.1") and in the lower right corner
   of the main menu.
+- `tools/vmu_import.py` copies a save in Nexus .dci format into the memory card image
+  (`vmu_a1.bin`), replacing the game's old save.
 
 ### Changed
 - The player README explains that the game confirms with A (Z on the keyboard) everywhere

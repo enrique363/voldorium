@@ -98,7 +98,9 @@ Memory card
 -----------
 The game has a memory card (VMU) in controller port A: vmu_a1.bin next to the executable holds
 your saves (options, unlocked characters, records). The first start creates it. Online matches
-run without a card, so both players start alike.
+run without a card, so both players start alike. A save of your own from a real card or an
+emulator in Nexus .dci format can be copied in with tools/vmu_import.py from the source
+repository (python tools/vmu_import.py vmu_a1.bin yoursave.dci; the old card is kept as .bak).
 
 16:9 pictures
 -------------
