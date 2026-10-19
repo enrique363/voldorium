@@ -5,3 +5,6 @@
 *.h text eol=lf
 *.ico binary
 *.png binary
+*.bat text eol=crlf
+*.S text eol=lf
+*.tsv text eol=lf

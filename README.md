@@ -51,53 +51,60 @@ generated from them (`port/build/`), Ghidra projects, traces, and `port/art16x9/
 
 ## Building
 
-Windows 10 or 11, with Git for Windows (Git Bash) and Python 3.10 or newer.
+You need Windows 10 or 11, your own disc dump of SoulCalibur (USA, T-1401N, V1.000) as a
+`.gdi` file with its track files, about 1 GB of free disk space and an internet connection for
+the first build. Nothing else has to be installed.
 
-Tools, placed by default in an `engines/` folder **next to** this repository (or point to them
-with the variables shown, for example in a `local.env` file at the repository root, which is
-not committed):
+### The easy way
 
-| Tool | Default location | Variable |
-| --- | --- | --- |
-| [llvm-mingw](https://github.com/mstorsjo/llvm-mingw/releases) (x86_64, ucrt) | `engines/llvm-mingw-20260922-ucrt-x86_64` | `LLVM_MINGW` |
-| [SDL2](https://github.com/libsdl-org/SDL/releases) 2.32 mingw development files | `engines/SDL2-2.32.10/x86_64-w64-mingw32` | `SDL2_DIR` |
-| [Flycast](https://github.com/flyinghead/flycast) source checkout (for its FSCA table header and its replacement BIOS font) | `engines/flycast` | `FLYCAST` |
+1. Download this repository: the green **Code** button on GitHub, then **Download ZIP**, and
+   unzip it anywhere (or clone it with git).
+2. Double-click **`Build Voldorium.bat`** in the unzipped folder. You can also drop your `.gdi`
+   file onto it.
+3. Choose your `.gdi` file when it asks.
+4. Wait. The first build downloads its tools (about 200 MB, once) and then takes from one to
+   about ten minutes, depending on the PC. When it is done, the **`Voldorium`** folder opens:
+   start `Voldorium.exe`.
 
-```
-workspace/
-  engines/          llvm-mingw, SDL2, flycast
-  voldorium/        this repository
-    disc/gdi/       your dump: soulcalibur.gdi and its track files (ignored by git)
-```
+What the builder does, so you know what runs on your PC:
 
-Steps, in Git Bash from the repository root:
+| Step | What happens |
+| --- | --- |
+| Tools | Downloads into `toolchain/` here, at fixed versions, each checked against its SHA-256: the [llvm-mingw](https://github.com/mstorsjo/llvm-mingw) compiler, [SDL2](https://github.com/libsdl-org/SDL), and two files from [Flycast](https://github.com/flyinghead/flycast) (the SH-4 sine table header and its replacement BIOS font). A portable Python too, if you have no Python 3.10 or newer. Nothing is installed on the system; delete `toolchain/` to remove it all. |
+| 1. Extract | Reads the boot files from your dump into `extracted/` and checks they are the supported release. |
+| 2. Translate | Turns the game code into C (`port/build/sweep/`). |
+| 3. GGPO | Builds the rollback netcode library. |
+| 4. Compile | Builds `Voldorium.exe` (objects in `%LOCALAPPDATA%\sc-m1`). |
+| 5. Player folder | Puts the game, `SDL2.dll`, the font, `voldorium.ini` and `README.txt` in `Voldorium/`. |
 
-1. Extract the boot files from your dump (writes `extracted/`, checks the SHA-1):
+Run it again after updating the repository: finished steps are skipped and your settings and
+memory card in `Voldorium/` are kept. Everyone who builds the same version gets the same
+program, which is what the online lobby needs to match players.
 
-   ```bash
-   python -I tools/extract_boot.py disc/gdi/soulcalibur.gdi
-   ```
+### Troubleshooting
 
-2. Translate the game code into C (writes `port/build/sweep/`, a few minutes):
+| Message | What to do |
+| --- | --- |
+| `This dump is not SoulCalibur USA (T-1401N, V1.000)` | Only that release is supported. Check the `.gdi` is the USA disc and that its track files are complete. |
+| `no high-density data track` | Choose the `.gdi` file itself, with all its `.bin` / `.raw` track files in the same folder. |
+| `could not download ...` | Check the internet connection (or a firewall or proxy) and run the builder again. |
+| `does not match its pinned SHA-256` | The download was damaged or changed. Delete the `toolchain` folder and run the builder again; if it keeps happening, open an issue. |
+| Windows SmartScreen warns about the `.bat` | It is a plain text script: right-click it, **Edit**, to read it first. Then **More info**, **Run anyway**. |
+| Antivirus removes `Voldorium.exe` | A freshly compiled, unsigned program can trip heuristics. Allow it, or exclude the folder. |
+| Online Versus does not find a friend | Both of you must build the same version of this repository. |
 
-   ```bash
-   cd port && python -I sh4c/sweep.py build/sweep 8
-   ```
+### By hand (developers)
 
-3. Build GGPO, then the game (output in `%LOCALAPPDATA%/sc-m1`):
+`tools/build.py` does every step and can be run directly: `python -I tools/build.py --gdi
+path\to\soulcalibur.gdi [--download] [--player-dir DIR]` (`--help` lists the options). It finds
+its tools in this order: the variables `LLVM_MINGW`, `SDL2_DIR` and `FLYCAST` (the environment,
+or a `local.env` file at the repository root, which is not committed), an `engines/` folder next
+to the repository, then `toolchain/`. The Git Bash scripts `port/m1/build_ggpo.sh`,
+`build_win.sh` and `make_player.sh` run its single steps; `port/sh4c/sweep.py` is the
+translator and `port/tests/run_all.sh` the test suite.
 
-   ```bash
-   bash m1/build_ggpo.sh && bash m1/build_win.sh
-   ```
-
-4. Assemble the player folder `port/build/player` (executable, SDL2.dll, settings, README.txt):
-
-   ```bash
-   bash m1/make_player.sh
-   ```
-
-Everything you build stays on your machine. Do not upload or share `port/build/` or the
-executables.
+Everything you build stays on your machine. Do not upload or share the `Voldorium` folder,
+`port/build/` or the executables: they contain code translated from the game.
 
 ## Playing
 
@@ -136,6 +143,8 @@ of the game. Third-party parts keep their own licenses:
 
 - GGPO: MIT (`third_party/ggpo/LICENSE`)
 - SDL2: zlib (linked at build time, shipped as `SDL2.dll`)
-- Flycast: GPL-2.0. Its sine table header and BIOS font are taken from your own checkout at
-  build time and are not stored here; the patches in `flycast-trace/` and `port/m0/flycast-hooks/`
-  apply to a Flycast checkout and are offered under the GPL-2.0.
+- Flycast: GPL-2.0. Its sine table header (the SH-4 FSCA results, measured on the hardware)
+  and its BIOS font are downloaded by the builder from Flycast's repository at a pinned commit,
+  or taken from your own checkout, at build time; they are not stored here. The patches in
+  `flycast-trace/` and `port/m0/flycast-hooks/` apply to a Flycast checkout and are offered
+  under the GPL-2.0.

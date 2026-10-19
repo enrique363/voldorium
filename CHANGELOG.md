@@ -2,6 +2,19 @@
 
 All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); see the README.
 
+## Unreleased
+
+### Added
+- **One-click builder**: double-click `Build Voldorium.bat` (or drop your `.gdi` onto it). It
+  fetches pinned, SHA-256-checked tools into `toolchain/` (nothing is installed), runs every
+  step and opens the finished `Voldorium` folder. No Git Bash, Python install or Flycast checkout
+  needed any more; the two Flycast files the build uses are downloaded at a pinned commit.
+- `tools/build.py`: every build step in one script (the Git Bash scripts now call it).
+- README: step by step build instructions and a Troubleshooting table.
+
+### Changed
+- The online build key ignores line endings, so every checkout of the same sources matches.
+
 ## 1.0.2 (2026-10-19)
 
 ### Added
