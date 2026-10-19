@@ -82,10 +82,29 @@ buttons for L / R); a second controller is player 2, for VS BATTLE. In the galle
 viewer L / R change pictures (the D-pad moves the picture).
 The game starts full screen at your monitor's resolution. GRAPHICS in the main menu (under
 OPTIONS) switches between full screen and a window, sets the resolution the game is drawn at
-(native or a 16:9 size up to your monitor's), anti-aliasing (off, 2x, 4x, 8x) and VSync (on:
-no screen tearing; off: the lowest input delay; G-Sync / FreeSync work with it on in full
-screen); changes apply
-at once and are saved in voldorium.ini. Alt+Enter or F11: full screen on/off. Esc: quit (during an online match: leave it and go back to the main menu; if a match is cut off, both players return there).
+(native or a 16:9 size up to your monitor's), anti-aliasing (off, 2x, 4x, 8x) and VSync (see
+below); changes apply at once and are saved in voldorium.ini. Alt+Enter or F11: full screen on/off. Esc: quit (during an online match: leave it and go back to the main menu; if a match is cut off, both players return there).
+
+VSync
+-----
+VSync makes the game wait for your monitor to finish showing one picture before it sends the
+next, so you never see two half pictures at once (screen tearing: a horizontal line where the
+image is split, most visible when the camera moves). The cost is a short wait for the next
+screen refresh. Voldorium uses adaptive VSync where the graphics driver offers it: a picture
+that is late shows at once instead of waiting a whole refresh, so online matches never slow down.
+
+Recommended: leave VSync ON (the default) on every monitor.
+- G-Sync / FreeSync monitor: the game runs at 60 frames a second, below the monitor's maximum,
+  so the monitor shows each picture as soon as it is ready. VSync then adds no delay at all and
+  only catches the cases where G-Sync / FreeSync is not active. For G-Sync in this game (it
+  runs as a borderless full screen window), choose "Enable for windowed and full screen mode"
+  in the NVIDIA Control Panel (Set up G-SYNC), or turn on Variable refresh rate in Windows
+  (Settings > Display > Graphics). With it working, the monitor's own on-screen display shows
+  about 60 Hz while you play.
+- 120 Hz and faster monitors without G-Sync / FreeSync: VSync on costs at most one short
+  refresh (about 3 ms on average at 180 Hz).
+- 60 Hz monitors without G-Sync / FreeSync: VSync on adds about half a frame (around 8 ms) on
+  average. Turn it OFF only if you want the lowest possible input delay and do not mind tearing.
 
 Online Versus (same network)
 ----------------------------
