@@ -10,6 +10,8 @@ together with a small native runtime that stands in for the Dreamcast hardware. 
   accept/decline, NAT hole punching with a relay fallback, and GGPO rollback netcode
 - a built-in virtual memory card, an in-game GRAPHICS menu, optional 16:9 replacement artwork
 
+What changed in each version: [CHANGELOG.md](CHANGELOG.md).
+
 ## You need your own copy of the game
 
 > **This repository contains no game code, no game data and no executable.**

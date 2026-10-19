@@ -6,6 +6,7 @@
 !/.gitattributes
 !/README.md
 !/NOTICE.md
+!/CHANGELOG.md
 !/docs/
 !/ghidra-scripts/
 !/ghidra-run.sh
