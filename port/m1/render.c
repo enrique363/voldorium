@@ -58,6 +58,7 @@
 	X(PFNGLUNIFORM2FPROC, glUniform2f) \
 	X(PFNGLUNIFORM3FPROC, glUniform3f) \
 	X(PFNGLBUFFERSUBDATAPROC, glBufferSubData) \
+	X(PFNGLUNIFORM4FPROC, glUniform4f) \
 	X(PFNGLUSEPROGRAMPROC, glUseProgram) \
 	X(PFNGLVERTEXATTRIBPOINTERPROC, glVertexAttribPointer)
 #define X(T, n) static T p_##n;
@@ -89,6 +90,7 @@ GL_FUNCS(X)
 #define glUniform1i p_glUniform1i
 #define glUniform2f p_glUniform2f
 #define glUniform3f p_glUniform3f
+#define glUniform4f p_glUniform4f
 #define glBufferSubData p_glBufferSubData
 #define glUseProgram p_glUseProgram
 #define glVertexAttribPointer p_glVertexAttribPointer
@@ -402,7 +404,7 @@ int video_enabled(void)
 		sscanf(getenv("M1_WINDOW"), "%dx%d", &win_w, &win_h);
 	const int full = getenv("M1_FULLSCREEN") && atoi(getenv("M1_FULLSCREEN"));
 	const Uint32 win_flags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | (full ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
-	win = SDL_CreateWindow("Voldorium", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, win_w, win_h, win_flags);
+	win = SDL_CreateWindow("Voldorium ver. " VOLDORIUM_VERSION, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, win_w, win_h, win_flags);
 	if (win)
 	{
 		if (!full)
@@ -573,7 +575,7 @@ void video_title(const char *status)
 	if (!video_enabled())
 		return;
 	char t[256];
-	snprintf(t, sizeof(t), "Voldorium%s%s", status && status[0] ? " - " : "", status ? status : "");
+	snprintf(t, sizeof(t), "Voldorium ver. " VOLDORIUM_VERSION "%s%s", status && status[0] ? " - " : "", status ? status : "");
 	SDL_SetWindowTitle(win, t);
 	SDL_PumpEvents();
 }
@@ -1412,6 +1414,86 @@ u64 render_rtt_count(void) { return rtt_count; }
 u64 render_count(void) { return rendered; }
 
 static void render_frame_draw(TaCtx *c);
+
+/* "ver. 1.0.1" in the lower right corner, in the BIOS font like the game's help line, white with
+   a dark shadow; nothing without the font */
+static GLuint ver_prog, ver_tex;
+static GLint u_v_col;
+static int ver_w;
+static void draw_version(int rw, int rh)
+{
+	const u8 *font = hw_font_12x24();
+	if (!font)
+		return;
+	if (!blur_prog)
+		blur_init();	/* its full-target triangle and vertex shader */
+	if (!ver_prog)
+	{
+		static const char *fs =
+			"#version 330 core\n"
+			"in vec2 uv; out vec4 o;\n"
+			"uniform sampler2D src; uniform vec4 col;\n"
+			"void main() { o = vec4(col.rgb, col.a * texture(src, uv).r); }\n";
+		ver_prog = glCreateProgram();
+		glAttachShader(ver_prog, shader(GL_VERTEX_SHADER, blur_vs));
+		glAttachShader(ver_prog, shader(GL_FRAGMENT_SHADER, fs));
+		glLinkProgram(ver_prog);
+		u_v_col = glGetUniformLocation(ver_prog, "col");
+		/* the text as a coverage mask, bottom row first (GL); glyph i is ASCII 32 + i */
+		static const char text[] = "ver. " VOLDORIUM_VERSION;
+		const int n = (int)sizeof(text) - 1;
+		ver_w = n * 12;
+		u8 *px = calloc((size_t)ver_w * 24, 1);
+		for (int k = 0; k < n; k++)
+		{
+			const int ch = (u8)text[k];
+			if (ch < 33 || ch > 126)
+				continue;
+			const u8 *g = font + (ch - 32) * 36;
+			for (int y = 0; y < 24; y++)
+				for (int x = 0; x < 12; x++)
+				{
+					const int bit = y * 12 + x;
+					if (g[bit >> 3] & (0x80 >> (bit & 7)))
+						px[(23 - y) * ver_w + k * 12 + x] = 255;
+				}
+		}
+		glGenTextures(1, &ver_tex);
+		glBindTexture(GL_TEXTURE_2D, ver_tex);
+		glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, ver_w, 24, 0, GL_RED, GL_UNSIGNED_BYTE, px);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+		free(px);
+	}
+	/* 18 of 480 lines high, 10 lines from the bottom and the right edge */
+	const float s = rh / 480.0f * 0.75f;
+	const int w = (int)(ver_w * s + 0.5f), h = (int)(24 * s + 0.5f);
+	const int x = rw - (int)(10 * rh / 480.0f) - w, y = (int)(8 * rh / 480.0f);
+	const int sh = rh >= 720 ? 2 : 1;
+	glUseProgram(ver_prog);
+	glBindVertexArray(blur_vao);
+	glDisable(GL_SCISSOR_TEST);
+	glDisable(GL_DEPTH_TEST);
+	glDisable(GL_STENCIL_TEST);
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	glBindTexture(GL_TEXTURE_2D, ver_tex);
+	glViewport(x + sh, y - sh, w, h);
+	glUniform4f(u_v_col, 0, 0, 0, 0.7f);
+	glDrawArrays(GL_TRIANGLES, 0, 3);
+	glViewport(x, y, w, h);
+	glUniform4f(u_v_col, 0.92f, 0.92f, 0.92f, 0.9f);
+	glDrawArrays(GL_TRIANGLES, 0, 3);
+	glViewport(0, 0, rw, rh);
+	glUseProgram(prog);
+	glBindVertexArray(vao);
+	glBindBuffer(GL_ARRAY_BUFFER, vbo);
+	glEnable(GL_DEPTH_TEST);
+}
 /* M1_PERF=1: every 300 renders, the mean wall time per frame spent in the game (everything
    between two renders, pacing included unless M1_FAST) and in drawing, with the game mode */
 static u64 perf_prev;
@@ -1510,6 +1592,8 @@ static void render_frame_draw(TaCtx *c)
 	glStencilMask(0xff);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 	draw_lists(c);
+	if (rd32(0x8c24a584) == 11)	/* game mode 11: the main menu */
+		draw_version(rw, rh);
 	/* resolve the samples, then the screenshots read the finished picture */
 	glDisable(GL_SCISSOR_TEST);
 	glBindFramebuffer(GL_READ_FRAMEBUFFER, frame_fbo);

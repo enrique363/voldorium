@@ -67,6 +67,9 @@ static void hw_presets(void);
    unpacked by m1/build.sh from the local Flycast checkout); it is not part of this project. */
 #define BIOS_SIZE (2u << 20)
 static u8 bios[BIOS_SIZE];
+static int font_loaded;
+/* the 288 12x24 glyphs of the BIOS font (36 bytes each, 1 bit per pixel), or 0 without the font */
+const u8 *hw_font_12x24(void) { return font_loaded ? bios + 0x100020 : 0; }
 static void load_bios_font(void)
 {
 	char def[512];
@@ -88,6 +91,7 @@ static void load_bios_font(void)
 	}
 	const size_t n = fread(bios + 0x100020, 1, BIOS_SIZE - 0x100020, f);
 	fclose(f);
+	font_loaded = n >= 288 * 36;
 	printf("BIOS font: %zu bytes from %s\n", n, path);
 }
 

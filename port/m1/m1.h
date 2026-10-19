@@ -3,6 +3,8 @@
 #include "sh4rt.h"
 #include <stdio.h>
 
+#define VOLDORIUM_VERSION "1.0.1"	/* shown in the window title and on the main menu (render.c); also voldorium.rc */
+
 extern SH4 *m1_cpu;
 void m1_stop(const char *why);
 void m1_fatal(const char *fmt, ...);	/* startup error: log it, show it (Windows), exit */
@@ -14,6 +16,7 @@ void hw_tick(u32 cycles);				/* advance the virtual clock */
 u32 hw_pending_intevt(u32 imask);		/* INTEVT of an interrupt to take now, or 0 */
 void hw_raise(int istnrm_bit);
 void hw_cancel(int istnrm_bit);
+const u8 *hw_font_12x24(void);	/* the BIOS font's 12x24 glyphs, or 0 without the font */
 
 /* hle.c: BIOS syscalls and other high-level replacements; returns 1 when it answered the call */
 int hle_call(SH4 *c, u32 addr);
