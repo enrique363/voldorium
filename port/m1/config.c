@@ -363,6 +363,8 @@ int config_start(int argc, char **argv, const char **ranges)
 				env_default("M1_NET_PRELUDE", "1");
 			else if (!strcmp(a, "--relay") && next)	/* token,id: the match goes through the lobby relay */
 				env_default("M1_NET_RELAY", next), i++;
+			else if (!strcmp(a, "--back") && next)	/* after a lobby match: straight to the main menu, why ("-": none) */
+				env_default("M1_BACK", next), i++;
 			else if (!strcmp(a, "--opponent") && next)
 				env_default("M1_NET_OPPONENT", next), i++;
 		}

@@ -168,7 +168,7 @@ static bool __cdecl cb_event(GGPOEvent *e)
 	case GGPO_EVENTCODE_CONNECTION_RESUMED: printf("net: connection resumed\n"); break;
 	case GGPO_EVENTCODE_DISCONNECTED_FROM_PEER:
 		if (prelude)
-			online_return("Your opponent disconnected.");
+			online_return("The connection to your opponent was lost.");
 		m1_stop("net: peer disconnected");
 		break;
 	default: break;
@@ -214,9 +214,7 @@ static void CALLBACK driver(void *arg)
 				since = GetTickCount();
 			if (prelude && GetTickCount() - since > 20000)	/* a lobby match that never connects */
 			{
-				char why[160];
-				snprintf(why, sizeof(why), "Could not connect to %s. A firewall may be blocking the game.", peer_name);
-				online_return(why);
+				online_return("Could not connect. Check your firewall.");
 			}
 			ggpo_idle(gs, 5);
 			continue;
@@ -373,7 +371,7 @@ static int prelude_step(void)
 		else if (rel >= 100 && rel < 104)
 			b = 0x0008;	/* Start */
 		else if (rel > 900)
-			online_return("The match could not be started (main menu).");
+			online_return("The match could not be started.");
 	}
 	else if (rel >= 20 && rel % 40 < 4)
 		b = 0x0008;	/* Start */
@@ -385,12 +383,44 @@ static int prelude_step(void)
 	return 1;
 }
 
+/* the boot after a lobby match (online.c online_return, M1_BACK): Start through the title and
+   notices, unpaced and not drawn, until the main menu (mode 11) runs; then the player has it.
+   Returns 1 while it runs. */
+static int back_step(void)
+{
+	static u64 hooks, since;
+	static u32 last = ~0u;
+	const u32 mode = rd32(0x8c24a584);
+	if (mode != last)
+	{
+		last = mode;
+		since = hooks;
+	}
+	const u64 rel = hooks - since;
+	if ((mode == 11 && rel >= 2) || hooks > 20000)
+	{
+		printf("online: main menu at loop %llu\n", (unsigned long long)hooks);
+		fflush(stdout);
+		return 0;
+	}
+	net_pads[0] = mode != 11 && rel >= 20 && rel % 40 < 4 ? 0x0008 : 0;	/* Start */
+	net_pads[1] = 0;
+	hooks++;
+	return 1;
+}
+
 void netplay_hook(SH4 *c)
 {
 	(void)c;
-	static int on = -1;
+	static int on = -1, back;
 	if (on < 0)
 	{
+		back = getenv("M1_NET") == 0 && getenv("M1_BACK") != 0;
+		if (back)
+		{
+			m1_net_active = 1;	/* the pads from net_pads */
+			m1_resim = 1;		/* not drawn, not paced, silent */
+		}
 		on = getenv("M1_NET") != 0;
 		prelude = on && getenv("M1_NET_PRELUDE") != 0;
 		if (prelude)
@@ -399,6 +429,12 @@ void netplay_hook(SH4 *c)
 			m1_resim = 1;		/* not drawn, not paced, silent */
 			video_title("starting the match");
 		}
+	}
+	if (back && !back_step())
+	{
+		back = 0;
+		m1_net_active = 0;
+		m1_resim = 0;
 	}
 	if (!on)
 		return;

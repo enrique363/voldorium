@@ -728,16 +728,53 @@ static void start_match(int player, const char *relay)
 	exit(0);
 }
 
-/* the end of a lobby match: says why (unless the player left with Esc: why = ""), then restarts
-   the game without the session (netplay.c, render.c) */
+/* the end of a lobby match (netplay.c, render.c): restarts the game without the session; the new
+   process boots straight to the main menu with the cursor on ONLINE VERSUS and shows why there
+   (why = "": the player left with Esc). No message box: under a full screen window it would be
+   hidden and the game would seem frozen. */
 void online_return(const char *why)
 {
-	printf("online: %s\n", why);
+	printf("online: back to the main menu: %s\n", why[0] ? why : "left the match");
 	fflush(stdout);
-	if (why[0] && !m1_verbose)
-		MessageBoxA(0, why, "Voldorium", MB_ICONINFORMATION);
-	relaunch("");
+	/* the session's settings are inherited by the new process through the environment */
+	static const char *const session[] = { "M1_NET", "M1_NET_PRELUDE", "M1_NET_RELAY", "M1_NET_OPPONENT",
+										   "M1_NET_MENU_DELAY", "M1_PADS", "M1_CHILD_PADS", "M1_LOBBY_TEST" };
+	for (unsigned i = 0; i < sizeof(session) / sizeof(session[0]); i++)
+		_putenv_s(session[i], "");
+	char arg[160], *o = arg;
+	o += sprintf(o, "--back \"");
+	for (const char *s = why[0] ? why : "-"; *s && o < arg + sizeof(arg) - 2; s++)
+		if (*s != '"')
+			*o++ = *s;
+	strcpy(o, "\"");
+	if (!relaunch(arg))
+		m1_fatal("Could not restart the game (error %lu).", GetLastError());
 	exit(0);
+}
+
+/* after a match (config.c --back, M1_BACK): the cursor on ONLINE VERSUS, the reason as its help
+   line until the cursor moves */
+static void back_notice(u32 cur)
+{
+	static int done, shown;
+	if (!done && get32(cur) == 0)
+	{
+		done = 1;
+		const char *why = getenv("M1_BACK");
+		if (!why)
+			return;
+		put32(cur + 4, ONLINE_INDEX);
+		if (strcmp(why, "-"))
+		{
+			put_str(S_HELP, why);
+			shown = 1;
+		}
+	}
+	else if (shown && (get32(cur) != 0 || get32(cur + 4) != ONLINE_INDEX))
+	{
+		shown = 0;
+		put_str(S_HELP, "Fight players around the world.");
+	}
 }
 
 /* one lobby line: label, help line, value (type 2: the menu to return to) */
@@ -1032,6 +1069,7 @@ void online_menu(SH4 *c, void (*f)(SH4 *))
 								   3600 frames without input): waiting in the lobby is not idling */
 	if (allowed)
 	{
+		back_notice(cur);
 		if (get32(cur) == 0)
 		{
 			const u32 e = get32(cur + 4);

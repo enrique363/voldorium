@@ -654,7 +654,7 @@ online checklist). No game data goes in.
 | Window and input | `m1/render.c` | Alt+Enter or F11 toggles fullscreen (remembered), Esc quits, keys from `[keys]`, controller left stick as D-pad, hot-plugged controllers |
 | Netplay status | `m1/netplay.c` | Window title: "waiting for the opponent at ..." while connecting, then ping and rollback count |
 | Audio | `m1/aica.c` | A 46 ms queue cushion (playback pauses to refill if it ever runs dry; 2 underruns in 120 s paced, from 120), at most 0.1 s latency, `[audio] volume` |
-| Log | `m1/m1.c` | In the player form the per-DMA / per-read lines are off (`M1_VERBOSE=1` turns them on); an unexpected stop (opponent disconnected, an error) shows a message box |
+| Log | `m1/m1.c` | In the player form the per-DMA / per-read lines are off (`M1_VERBOSE=1` turns them on); an unexpected stop (an error) shows a message box; the end of an online match does not (back to the main menu, the reason in its help line) |
 
 Checked: the player form boots from the disc dump with the ini's settings; two copies started
 8 s apart with `--join` connect and keep identical checksums; the launcher renders as intended
@@ -864,7 +864,15 @@ fields (`m1/online.c`).
   ONLINE VERSUS entry is hidden in a session (both sides alike). Widescreen changes the game's
   own projection value (`0x8C266C28`), so 16:9 and 4:3 copies simulate differently (a mixed
   pair desynced at the first checksum); with the port now 16:9 only, every copy agrees. A match that does not connect
-  in 20 s, a disconnect, or Esc ends it and restarts the game normally.
+  in 20 s, a lost connection (GGPO's 5 s disconnect timeout: the opponent quit, closed the game
+  or dropped off the network), or Esc ends it, and both sides go back to the main menu:
+  `online_return` restarts the program with `--back "<reason>"` and without the session's
+  environment (`M1_NET*`; before this the new process inherited it, tried to rejoin the old
+  match and sat on a black screen behind a hidden message box). `M1_BACK` boots unpaced and not
+  drawn on Start presses to the main menu (about 320 loops: the first frame drawn is the menu),
+  puts the cursor on ONLINE VERSUS and shows the reason as its help line until the cursor
+  moves; no message box. Checked by `tests/lobby_drop.sh` (one side's match closes mid-fight,
+  the other is back in the main menu).
 
 Checked (`tests/lobby.sh`, two copies on this PC): both list each other, the challenge is
 accepted, both boots end at the same loop (454), and a VS fight with mashed inputs keeps 83/83

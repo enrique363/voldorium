@@ -75,7 +75,7 @@ voldorium.ini, [keys], with SDL key names). A game controller works too (left st
 The game starts full screen at your monitor's resolution. GRAPHICS in the main menu (under
 OPTIONS) switches between full screen and a window, sets the resolution the game is drawn at
 (native or a 16:9 size up to your monitor's) and anti-aliasing (off, 2x, 4x, 8x); changes apply
-at once and are saved in voldorium.ini. Alt+Enter or F11: full screen on/off. Esc: quit (during an online match: leave the match).
+at once and are saved in voldorium.ini. Alt+Enter or F11: full screen on/off. Esc: quit (during an online match: leave it and go back to the main menu; if a match is cut off, both players return there).
 
 Online Versus (same network)
 ----------------------------
