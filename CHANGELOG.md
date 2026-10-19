@@ -27,6 +27,11 @@ All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); 
 - Building from the repository uses its own copy of GGPO (`third_party/ggpo`).
 
 ### Added
+- **VSync** (on by default; GRAPHICS menu and `[video] vsync`): no more screen tearing. Adaptive
+  where the graphics driver supports it, so a late frame (a rollback in an online match) shows at
+  once instead of slowing the game. On 60 Hz displays the display's refresh sets the pace (steady
+  16.66 ms frames); on faster displays the game keeps 60 frames a second, and G-Sync / FreeSync
+  work in full screen.
 - **Smooth text**: menu and HUD text is drawn from upscaled copies of the game's font
   textures, so it keeps its size with smooth edges at high resolutions. `[video] text = sharp`
   in `voldorium.ini` restores the original pixels.

@@ -5,7 +5,7 @@
  *           vmu = memory card file (default vmu_a1.bin next to the executable; none in netplay)
  *   [video] fullscreen = 0/1 (player form default 1)  resolution = native or WxH (16:9; the
  *           picture is drawn at that size)  window = 1280x720 (window size when native)
- *           msaa = 0/2/4/8 (anti-aliasing)
+ *           msaa = 0/2/4/8 (anti-aliasing), vsync = 1/0, text = smooth/sharp
  *           backgrounds = stretch / blur / replace (4:3 menu and loading pictures in 16:9)
  *   [audio] enabled = 0/1  volume = 0-200 (percent)
  *   [keys]  up down left right a b x y start = SDL key names (e.g. Up, Z, Return)
@@ -191,6 +191,7 @@ static void apply_settings(void)
 	}
 	if ((v = config_get("video", "msaa")) && atoi(v))
 		env_default("M1_MSAA", v);
+	env_default("M1_VSYNC", config_get("video", "vsync"));	/* on unless 0 (render.c) */
 	if ((v = config_get("video", "text")) && !strcmp(v, "sharp"))
 		env_default("M1_SMOOTH2D", "0");	/* smooth (default): upscaled 2D text and HUD, render.c */
 	if ((v = config_get("audio", "enabled")) && !atoi(v))

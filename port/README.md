@@ -687,6 +687,31 @@ between two machines over the internet (see `build/player/README.txt` for the ch
 Not checked against the no-stretch rule yet: the gallery, mission and option screens (the test
 scripts do not reach them).
 
+## VSync (2026-10-19)
+
+Swaps used to be immediate (`SDL_GL_SetSwapInterval(0)`; the 60 Hz host clock in `hw.c
+pace_frame` / `netplay.c wait_next_frame` paced frames), so the picture tore. Now `[video]
+vsync` (M1_VSYNC, on by default; GRAPHICS menu line VSYNC ON / OFF) asks for adaptive VSync
+(interval -1, EXT_swap_control_tear), else plain VSync. The frame clocks run at
+`video_pace_hz()`: 62 when VSync is on and the display is 58-62 Hz, so the display's refresh sets
+the pace (two 60 Hz clocks would drift apart and drop a frame every few seconds), else 60 (a
+120-180 Hz display: the swap waits at most one short refresh; G-Sync / FreeSync in full screen
+show each frame when ready). The refresh rate is read again on a full screen / window switch.
+Unpaced runs (M1_FAST) and headless runs never wait.
+
+Measured on a 60 Hz display (`M1_FRAMETIME=1`: time between swaps every 300 swaps):
+
+| Run | Mean | Frames over 25 ms |
+| --- | --- | --- |
+| Arcade, VSync off | 16.66 ms (15.8-17.6) | 0 outside loads |
+| Arcade, adaptive VSync | 16.66 ms (16.4-16.9) | 0 outside loads |
+| Netplay pair in windows, VSync off | 17.0 ms | 858 / 1298 of 9900 |
+| Netplay pair, plain VSync | 17.9 ms (late re-simulated frames waited a refresh: 6% slow) | 220 / 259 |
+| Netplay pair, adaptive VSync | 16.95 ms | 269 / 271 |
+
+Both peers stayed in sync in every run (164/164 checksums). The slow netplay frames are
+rollbacks of two copies sharing one PC with 100 ms simulated latency.
+
 ## Missing text, colours, smooth text (2026-10-19)
 
 - **Missing text** (gallery descriptions, the VS screen's score and DRAW count, TEAM BATTLE's
@@ -949,6 +974,7 @@ traversal), and a lobby between two PCs.
 | `tests/lobby.sh [s]` | two copies meet in the Online Versus lobby, challenge, accept, VS fight | same boot loop, identical checksums |
 | `tests/lobby_inet.sh direct\|relay [s]` | the same through a local lobby server | identical checksums |
 | `tests/lobby_drop.sh [s]` | one side's match closes mid-fight | the other is back in the main menu |
+| `tests/netplay.sh` with `NET_WINDOWED=1` (`NET_VSYNC=0/1`) | the netplay match in windows, VSync on, frame times logged (M1_FRAMETIME) | identical checksums; frame times |
 | `tests/modes.sh [s] [entries]` | every main menu entry, A taps into the mode | no stop before the time limit; `build/tests/modes/<n>/shot_*.png` |
 
 ## Pieces

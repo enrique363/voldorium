@@ -35,6 +35,7 @@ window = 1280x720
 msaa = 4
 backgrounds = stretch
 text = smooth
+vsync = 1
 
 [audio]
 enabled = 1
@@ -81,7 +82,9 @@ buttons for L / R); a second controller is player 2, for VS BATTLE. In the galle
 viewer L / R change pictures (the D-pad moves the picture).
 The game starts full screen at your monitor's resolution. GRAPHICS in the main menu (under
 OPTIONS) switches between full screen and a window, sets the resolution the game is drawn at
-(native or a 16:9 size up to your monitor's) and anti-aliasing (off, 2x, 4x, 8x); changes apply
+(native or a 16:9 size up to your monitor's), anti-aliasing (off, 2x, 4x, 8x) and VSync (on:
+no screen tearing; off: the lowest input delay; G-Sync / FreeSync work with it on in full
+screen); changes apply
 at once and are saved in voldorium.ini. Alt+Enter or F11: full screen on/off. Esc: quit (during an online match: leave it and go back to the main menu; if a match is cut off, both players return there).
 
 Online Versus (same network)

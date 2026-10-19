@@ -303,6 +303,7 @@ int video_is_fullscreen(void) { return win && (SDL_GetWindowFlags(win) & SDL_WIN
 /* a GRAPHICS change also goes into this process's environment: a restart into or out of an
    online match (online.c relaunch) inherits it, and the settings file is only read where the
    environment has nothing */
+static void vsync_apply(void);
 static void setting_env(const char *name, const char *value)
 {
 #ifdef _WIN32
@@ -320,6 +321,7 @@ void video_toggle_fullscreen(void)
 	SDL_SetWindowFullscreen(win, full ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
 	if (!full)
 		window_fit();
+	vsync_apply();	/* the display's refresh rate may differ in the other mode */
 	config_set("video", "fullscreen", full ? "1" : "0");
 	config_save();
 	setting_env("M1_FULLSCREEN", full ? "1" : "0");
@@ -371,6 +373,53 @@ void video_next_resolution(void)
 }
 
 int video_msaa(void) { return msaa < 2 ? 0 : msaa > max_samples ? max_samples : msaa; }
+
+/* VSync ([video] vsync, M1_VSYNC; on by default). Frames are paced by the 60 Hz clock (hw.c
+   pace_frame, netplay.c wait_next_frame); with VSync each swap also waits for the display's
+   refresh, so a frame is never shown half drawn. On a display of about 60 Hz the two clocks
+   would drift apart and drop a frame every few seconds, so there the clock runs a little fast
+   (video_pace_hz 62) and the display's refresh sets the pace; on faster displays (120 Hz and
+   up) the clock keeps 60 and the swap waits at most one short refresh, and G-Sync / FreeSync in
+   full screen show each frame when it is ready. Unpaced runs (M1_FAST) never wait. */
+static int vsync_want = -1, vsync_on, vsync_adaptive, display_hz;
+static void vsync_apply(void)
+{
+	if (vsync_want < 0)
+		vsync_want = !getenv("M1_VSYNC") || atoi(getenv("M1_VSYNC"));
+	const int fast = getenv("M1_FAST") != 0;
+	/* adaptive where the driver has it (-1, EXT_swap_control_tear): a frame that is late shows at
+	   once instead of waiting a whole refresh, which in a rollback match (re-simulated frames)
+	   would slow the game down; plain VSync otherwise */
+	vsync_adaptive = 0;
+	vsync_on = 0;
+	if (vsync_want && !fast)
+	{
+		vsync_adaptive = SDL_GL_SetSwapInterval(-1) == 0;
+		vsync_on = vsync_adaptive || SDL_GL_SetSwapInterval(1) == 0;
+	}
+	if (!vsync_on)
+		SDL_GL_SetSwapInterval(0);
+	SDL_DisplayMode m;
+	display_hz = win && SDL_GetWindowDisplayMode(win, &m) == 0 ? m.refresh_rate : 0;
+	if (win && SDL_GetCurrentDisplayMode(SDL_GetWindowDisplayIndex(win), &m) == 0 && m.refresh_rate)
+		display_hz = m.refresh_rate;
+	printf("video: vsync %s (display %d Hz)\n", vsync_on ? (vsync_adaptive ? "adaptive" : "on") : "off", display_hz);
+}
+int video_vsync(void) { return vsync_want < 0 ? 1 : vsync_want; }
+/* the rate the frame clock runs at: 62 when a VSync'd display of about 60 Hz sets the pace */
+double video_pace_hz(void)
+{
+	return vsync_on && display_hz >= 58 && display_hz <= 62 ? 62.0 : 60.0;
+}
+void video_next_vsync(void)
+{
+	vsync_want = !video_vsync();
+	if (win)
+		vsync_apply();
+	config_set("video", "vsync", vsync_want ? "1" : "0");
+	config_save();
+	setting_env("M1_VSYNC", vsync_want ? "1" : "0");
+}
 
 void video_next_msaa(void)
 {
@@ -490,7 +539,7 @@ int video_enabled(void)
 		return video_fail("OpenGL 3.3 context");
 	if (!gl_load())
 		return video_fail("OpenGL functions");
-	SDL_GL_SetSwapInterval(0);	/* the emulated V Blank paces frames */
+	vsync_apply();	/* frames are paced by the emulated V Blank; VSync only times the swap */
 	printf("video: %s / %s\n", glGetString(GL_RENDERER), glGetString(GL_VERSION));
 	glGetIntegerv(GL_MAX_SAMPLES, &max_samples);
 	prog = glCreateProgram();
@@ -1767,4 +1816,32 @@ static void render_frame_draw(TaCtx *c)
 	glBlitFramebuffer(0, 0, rw, rh, x0, y0, x0 + vw, y0 + vh, GL_COLOR_BUFFER_BIT, rw == vw && rh == vh ? GL_NEAREST : GL_LINEAR);
 	glBindFramebuffer(GL_FRAMEBUFFER, frame_fbo);
 	SDL_GL_SwapWindow(win);
+	{
+		/* M1_FRAMETIME=1 (tests): every 300 swaps, the time between them: mean, shortest,
+		   longest, and how many took more than 1.5 frames (a frame held an extra refresh) */
+		static int on = -1;
+		static u64 last, n, slow;
+		static double sum, lo = 1e9, hi;
+		if (on < 0)
+			on = getenv("M1_FRAMETIME") != 0;
+		if (on)
+		{
+			const u64 now = SDL_GetPerformanceCounter();
+			if (last)
+			{
+				const double ms = (double)(now - last) * 1000.0 / (double)SDL_GetPerformanceFrequency();
+				sum += ms, n++;
+				lo = ms < lo ? ms : lo;
+				hi = ms > hi ? ms : hi;
+				slow += ms > 25.0;
+				if (n == 300)
+				{
+					printf("frametime: mean %.2f ms, min %.2f, max %.2f, %llu over 25 ms (mode %u)\n", sum / n, lo, hi,
+						   (unsigned long long)slow, rd32(0x8c24a584));
+					n = slow = 0, sum = hi = 0, lo = 1e9;
+				}
+			}
+			last = now;
+		}
+	}
 }

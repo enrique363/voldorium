@@ -16,6 +16,7 @@ void hw_tick(u32 cycles);				/* advance the virtual clock */
 u32 hw_pending_intevt(u32 imask);		/* INTEVT of an interrupt to take now, or 0 */
 void hw_raise(int istnrm_bit);
 void hw_cancel(int istnrm_bit);
+double video_pace_hz(void);	/* frame clock rate: 60, 62 when a ~60 Hz VSync display paces (render.c) */
 const u8 *hw_font_12x24(void);	/* the BIOS font's 12x24 glyphs, or 0 without the font */
 
 /* hle.c: BIOS syscalls and other high-level replacements; returns 1 when it answered the call */

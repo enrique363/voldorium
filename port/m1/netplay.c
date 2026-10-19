@@ -186,7 +186,7 @@ static void wait_next_frame(void)
 		QueryPerformanceFrequency(&freq);
 		QueryPerformanceCounter(&next);
 	}
-	next.QuadPart += freq.QuadPart / 60;
+	next.QuadPart += (LONGLONG)((double)freq.QuadPart / video_pace_hz());	/* 60, or 62 when VSync paces (render.c) */
 	for (;;)
 	{
 		LARGE_INTEGER now;

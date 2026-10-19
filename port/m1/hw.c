@@ -261,7 +261,7 @@ static void pace_frame(void)
 	QueryPerformanceCounter(&now);
 	if (next.QuadPart == 0)
 		next = now;
-	next.QuadPart += freq.QuadPart / 60;
+	next.QuadPart += (LONGLONG)((double)freq.QuadPart / video_pace_hz());	/* 60, or 62 when VSync paces (render.c) */
 	const double behind = (double)(now.QuadPart - next.QuadPart) / (double)freq.QuadPart;
 	if (behind > 0.1)
 		next = now;
