@@ -10,7 +10,7 @@
 | Host | Oracle Cloud Always Free, Canada Southeast (Montreal), `instance-20261018-1855`, VM.Standard.E2.1.Micro (1 GB), Oracle Linux 9 |
 | Address | `147.15.149.200` (the game's built-in default, `LOBBY_SERVER` in `m1/online.c`; `[net] lobby = host:port` in `voldorium.ini` overrides it) |
 | Ports | UDP 7100 lobby, UDP 7101 relay (Oracle security list "Default Security List for sc-lobby-net" and firewalld) |
-| Login | `ssh -i ~/.ssh/sc_lobby opc@147.15.149.200` (key only: no passwords, no root login) |
+| Login | SSH with a key only (no passwords, no root login); the user, host and key file are kept out of the repository, in `local.env` (`SC_LOBBY_HOST`, `SC_LOBBY_KEY`) |
 | Service | `sc-lobby.service` (systemd), user `sclobby` (no shell, no home), files in `/opt/sc-lobby` |
 
 ## Install or update
@@ -22,7 +22,7 @@ bash lobby/deploy.sh
 ```
 
 It copies `sc_lobby.py` and `sc-lobby.service` to the server, installs them and restarts the
-service. Logs: `ssh -i ~/.ssh/sc_lobby opc@147.15.149.200 journalctl -u sc-lobby -n 50`.
+service. Logs: `journalctl -u sc-lobby -n 50` on the server.
 
 ## Tests
 

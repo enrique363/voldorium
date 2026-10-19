@@ -68,7 +68,7 @@ rewrites it), with 16:9 stretch output. Port: assign 0.75 in `game_init`.
 
 ### P3. Full-screen / full-width 2D
 
-Rule (Kike, 2026-10-15): HUD, menus, fonts and any textured artwork are never stretched.
+Rule (project decision, 2026-10-15): HUD, menus, fonts and any textured artwork are never stretched.
 
 #### P3a. Untextured solid-colour fills: may span the full 16:9 width
 

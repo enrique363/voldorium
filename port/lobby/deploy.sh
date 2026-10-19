@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 # Installs or updates the lobby server on the Oracle Cloud instance (lobby/README.md).
 # Usage (Git Bash, from sc/port): bash lobby/deploy.sh [user@host]
+# The login is not in git: SC_LOBBY_HOST (user@host) and SC_LOBBY_KEY (the SSH key file) come
+# from local.env at the repository root, or from the environment.
 set -euo pipefail
 cd "$(dirname "$0")"
-DEST=${1:-opc@147.15.149.200}
-SSH="ssh -i $HOME/.ssh/sc_lobby -o ConnectTimeout=20"
-scp -i "$HOME/.ssh/sc_lobby" -q sc_lobby.py sc-lobby.service "$DEST:/tmp/"
+[ -f ../../local.env ] && . ../../local.env
+DEST=${1:-${SC_LOBBY_HOST:?set SC_LOBBY_HOST=user@host in local.env, or pass it}}
+KEY=${SC_LOBBY_KEY:?set SC_LOBBY_KEY=path/to/ssh_key in local.env}
+SSH="ssh -i $KEY -o ConnectTimeout=20"
+scp -i "$KEY" -q sc_lobby.py sc-lobby.service "$DEST:/tmp/"
 $SSH "$DEST" 'set -e
 sudo install -d -o root -g root -m 755 /opt/sc-lobby
 sudo install -o root -g root -m 644 /tmp/sc_lobby.py /opt/sc-lobby/sc_lobby.py

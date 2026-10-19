@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Unattended SyncTest over several character / stage / mode combinations (SC_AUTOPLAY_SEED).
-#   wsl -d Ubuntu -- bash /mnt/c/Users/kiker/ReverseEngineering/sc/flycast-trace/run_synctest_combos.sh 1500 1 2 5 8
+#   wsl -d Ubuntu -- bash /mnt/c/path/to/sc/flycast-trace/run_synctest_combos.sh 1500 1 2 5 8
 # args: frames, then one or more seeds. Output per seed: sc/traces/combo/s<seed>/{run.log,synctest.csv,
 # statelog.csv,sync_<n>_*.{bin,txt}}. Needs "[input]\ndevice2 = 0" in ~/.config/flycast/emu.cfg for VS Battle.
 # Audio is switched off (-config audio:backend=null): with the WSLg PulseAudio sink the emulator thread
 # can deadlock at boot, and without audio pacing the test runs faster than real time.
 # Runs from files and never pkill -x flycast (other sessions may run their own builds).
 set -u
-SC=/mnt/c/Users/kiker/ReverseEngineering/sc
+SC="$(cd "$(dirname "$0")/.." && pwd)"
 FRAMES=$1; shift
 cd ~
 for SEED in "$@"; do

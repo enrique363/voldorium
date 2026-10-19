@@ -887,7 +887,7 @@ and Team Battle (second controller), Mission Battle, gallery pictures, endings, 
 Found on the way: the scrolling wallpaper stops about 145 pixels short of the right edge.
 
 **Background mode** (`[video] backgrounds` / `M1_BGMODE`, `render.c` `side_fill`): `stretch`
-(the default since 2026-10-18, Kike's choice to compare) draws the background layer at full width,
+(the default since 2026-10-18) draws the background layer at full width,
 stretched by 4/3, while menus, text and logos in front stay undistorted (the main menu's
 SOULCALIBUR logo belongs to its background layer, so it stretches too); `replace` uses the 16:9
 replacement pictures below, with the blur fill where there are none; `blur` only blurs.

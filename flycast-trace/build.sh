@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Builds the traced Flycast in WSL (~/sc-flycast). Run inside Ubuntu:
-#   bash /mnt/c/Users/kiker/ReverseEngineering/sc/flycast-trace/build.sh
+#   bash /mnt/c/path/to/sc/flycast-trace/build.sh
 set -euo pipefail
 SRC="$HOME/sc-flycast"
 HERE="$(cd "$(dirname "$0")" && pwd)"

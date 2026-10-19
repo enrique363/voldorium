@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # GGPO-style SyncTest. From Windows:
-#   wsl -d Ubuntu -- bash /mnt/c/Users/kiker/ReverseEngineering/sc/flycast-trace/run_synctest.sh
+#   wsl -d Ubuntu -- bash /mnt/c/path/to/sc/flycast-trace/run_synctest.sh
 # Control run with the real SH4 timer (expected to mismatch):
-#   wsl -d Ubuntu -- bash /mnt/c/Users/kiker/ReverseEngineering/sc/flycast-trace/run_synctest.sh realtimer
+#   wsl -d Ubuntu -- bash /mnt/c/path/to/sc/flycast-trace/run_synctest.sh realtimer
 # Start a fight and play actively. Each fight frame is simulated twice, so the game runs at
 # about half speed. 600 frames are tested (~20 s), then testing stops; close Flycast.
 # Output: sc/traces/synctest.csv (or synctest_realtimer.csv)
 set -euo pipefail
 export GALLIUM_DRIVER=d3d12
 export MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA
-SC=/mnt/c/Users/kiker/ReverseEngineering/sc
+SC="$(cd "$(dirname "$0")/.." && pwd)"
 mkdir -p "$SC/traces"
 export SC_TRACE=1                       # forces the interpreter
 export SC_TRACE_FILE=/tmp/sc_hud_unused.csv
