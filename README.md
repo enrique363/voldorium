@@ -122,6 +122,13 @@ The game uses a public lobby by default. To run your own, see `port/lobby/README
 (`sc_lobby.py`, UDP 7100 lobby and 7101 relay, with a systemd unit) and set
 `[net] lobby = host:7100` on every player's copy.
 
+## Credits
+
+- [enrique363](https://github.com/enrique363): project lead, direction, testing on real
+  hardware and networks.
+- [Claude](https://claude.com/claude-code) (Anthropic), through Claude Code: the translator,
+  the runtime, the online lobby and the tools, co-author of every commit.
+
 ## Licenses
 
 The project's own code is provided for personal, non-commercial use with a legally owned copy
