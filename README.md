@@ -57,8 +57,10 @@ the first build. Nothing else has to be installed.
 
 ### The easy way
 
-1. Download this repository: the green **Code** button on GitHub, then **Download ZIP**, and
-   unzip it anywhere (or clone it with git).
+1. Download the latest version from
+   [**Releases**](https://github.com/enrique363/voldorium/releases/latest): under **Assets**,
+   **Source code (zip)**. Unzip it anywhere. (The green **Code** button gives the newest work in
+   progress instead; players who want to meet online should build the same release.)
 2. Double-click **`Build Voldorium.bat`** in the unzipped folder. You can also drop your `.gdi`
    file onto it.
 3. Choose your `.gdi` file when it asks.
@@ -92,7 +94,7 @@ it), which is what the online lobby needs to match players.
 | `does not match its pinned SHA-256` | The download was damaged or changed. Delete the `toolchain` folder and run the builder again; if it keeps happening, open an issue. |
 | Windows SmartScreen warns about the `.bat` | It is a plain text script: right-click it, **Edit**, to read it first. Then **More info**, **Run anyway**. |
 | Antivirus removes `Voldorium.exe` | A freshly compiled, unsigned program can trip heuristics. Allow it, or exclude the folder. |
-| Online Versus does not find a friend | Both of you must build the same version of this repository. |
+| Online Versus does not find a friend | Both of you must build the same release (the version is in the main menu corner). |
 
 ### By hand (developers)
 
