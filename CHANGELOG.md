@@ -2,7 +2,7 @@
 
 All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); see the README.
 
-## Unreleased
+## 1.0.3 (2026-10-20)
 
 ### Fixed
 - **Arcade mode froze** after a few fights: the KO slow motion waits in a short loop for a flag
