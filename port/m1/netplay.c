@@ -412,6 +412,34 @@ static int back_step(void)
 void netplay_hook(SH4 *c)
 {
 	(void)c;
+	{
+		/* M1_TEST_P2KO=1 (tests): in fights, player 1 keeps full life and player 2 a sliver, so a
+		   scripted arcade run wins its rounds and goes through the stages; mode changes logged */
+		static int ko = -1;
+		static u64 loops;
+		static u32 last_mode = ~0u;
+		if (ko < 0)
+			ko = getenv("M1_TEST_P2KO") != 0;
+		if (ko)
+		{
+			const u32 mode = rd32(0x8c24a584);
+			if (mode != last_mode)
+			{
+				u64 render_count(void);
+				printf("test: mode %u at loop %llu, render %llu\n", mode, (unsigned long long)loops, (unsigned long long)render_count());
+				fflush(stdout);
+				last_mode = mode;
+			}
+			if (mode == 1)
+			{
+				/* player 1 full, player 2 a sliver: player 1 wins every round, on time if not
+				   before (writing 0 does not end a round; the KO check runs on hits) */
+				loops++;
+				wr32(0x8c2526ac, 0x43700000u);	/* g_p1_life = 240.0 */
+				wr32(0x8c25ad88, 0x3f800000u);	/* g_p2_life = 1.0 */
+			}
+		}
+	}
 	static int on = -1, back;
 	if (on < 0)
 	{

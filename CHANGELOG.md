@@ -4,7 +4,15 @@ All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); 
 
 ## Unreleased
 
+### Fixed
+- **Arcade mode froze** after a few fights: the KO slow motion waits in a short loop for a flag
+  that an interrupt sets, and the translated loop never let interrupts run (they were only taken
+  at function calls). Tight loops now check in every 4096 instructions, as on the hardware; an
+  arcade run now goes through every stage (`port/tests/arcade.sh`).
+
 ### Added
+- A frozen game writes a hang report to `m1_log.txt` (what it was running) after 8 seconds
+  without a frame, so a freeze can be found from the log.
 - **One-click builder**: double-click `Build Voldorium.bat` (or drop your `.gdi` onto it). It
   fetches pinned, SHA-256-checked tools into `toolchain/` (nothing is installed), runs every
   step and opens the finished `Voldorium` folder. No Git Bash, Python install or Flycast checkout

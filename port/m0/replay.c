@@ -102,6 +102,7 @@ sh4_jmp_buf *sh4_ctx_slot(SH4 *c, u32 buf) { (void)c; (void)buf; return &ctx_dum
 void sh4_ctx_resumed(SH4 *c) { (void)c; }
 void sh4_hook(SH4 *c, u32 addr) { (void)c; (void)addr; }
 u32 sh4_loop_cycles;
+void sh4_loop_poll(SH4 *c) { (void)c; sh4_loop_cycles = 0; }	/* the oracle replays single calls: no interrupts */
 
 static void on_signal(int sig)
 {

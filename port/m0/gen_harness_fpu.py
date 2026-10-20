@@ -49,6 +49,8 @@ static u8 *ram_image;
 static u32 fake_timer;
 
 u32 sh4_hw_read(u32 addr, int size) { fprintf(stderr, "unexpected hw read %08x/%d\n", addr, size); exit(2); }
+u32 sh4_loop_cycles;
+void sh4_loop_poll(SH4 *c) { (void)c; sh4_loop_cycles = 0; }   /* single calls: no interrupts */
 void sh4_hw_write(u32 addr, u32 v, int size) { fprintf(stderr, "unexpected hw write %08x=%x/%d\n", addr, v, size); exit(2); }
 void sh4_pref(SH4 *c, u32 a) { (void)c; (void)a; }
 void sh4_unimpl(SH4 *c, u32 a, u32 op) { (void)c; fprintf(stderr, "unimplemented %04x at %08x\n", op, a); exit(2); }

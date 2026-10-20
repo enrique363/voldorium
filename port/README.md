@@ -687,6 +687,24 @@ between two machines over the internet (see `build/player/README.txt` for the ch
 Not checked against the no-stretch rule yet: the gallery, mission and option screens (the test
 scripts do not reach them).
 
+## Arcade freeze: wait loops and interrupts (2026-10-20)
+
+Arcade mode froze after a few fights. A hang report (new: `m1.c` `hang_thread`, after 8 s
+without a frame the log gets the call stack and the last dispatcher calls; `M1_HANG_EXIT=1`
+exits for tests) showed `battle_state_ko` (0x8C024E00, the KO slow motion) spinning at
+0x8C024F6A with no calls: it clears a flag at +576 of its state, calls 0x8C0AC666 to start a
+job, and waits for the flag. Usually the job finishes inside the call; when it is completed by
+an interrupt handler or another SDK thread, the wait never ended, because interrupts are only
+taken at the top of `sh4_call`, and a tight loop without calls (sh4c `loop_jump`) only added to
+`sh4_loop_cycles`. Tight loops now call `sh4_loop_poll` every 4096 instructions (run the clock,
+take a pending interrupt, as a call does), so a wait behaves as on hardware: 896 loops in the
+sweep. The M0 replay harness has an empty `sh4_loop_poll` (single calls, no interrupts).
+
+`tests/arcade.sh` plays arcade start to finish (`M1_TEST_P2KO=1`: in fights player 1 keeps full
+life and player 2 a sliver, so player 1 wins on time; writing 0 does not end a round, the KO
+check runs on hits). Before the fix it froze in the 7th fight; after it, 9 fights through the
+last stage, no hang.
+
 ## VSync (2026-10-19)
 
 Swaps used to be immediate (`SDL_GL_SetSwapInterval(0)`; the 60 Hz host clock in `hw.c
@@ -975,6 +993,7 @@ traversal), and a lobby between two PCs.
 | `tests/lobby_inet.sh direct\|relay [s]` | the same through a local lobby server | identical checksums |
 | `tests/lobby_drop.sh [s]` | one side's match closes mid-fight | the other is back in the main menu |
 | `tests/netplay.sh` with `NET_WINDOWED=1` (`NET_VSYNC=0/1`) | the netplay match in windows, VSync on, frame times logged (M1_FRAMETIME) | identical checksums; frame times |
+| `tests/arcade.sh [s]` | arcade mode start to finish (player 1 always wins), about 40 minutes, not in run_all | no freeze (hang report) |
 | `tests/modes.sh [s] [entries]` | every main menu entry, A taps into the mode | no stop before the time limit; `build/tests/modes/<n>/shot_*.png` |
 
 ## Pieces

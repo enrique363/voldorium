@@ -219,6 +219,19 @@ static u8 class_of(u32 a)
 	return 0;
 }
 
+/* a tight loop's check-in (sh4c.py loop_jump): what a call does first, so a loop that waits
+   for an interrupt handler or another thread to set a flag gets there */
+void sh4_loop_poll(SH4 *c)
+{
+	hw_tick(0);	/* drains sh4_loop_cycles */
+	if (!in_irq && !(c->sr_ctl & 0x10000000u))
+	{
+		const u32 intevt = hw_pending_intevt((c->sr_ctl >> 4) & 15);
+		if (intevt)
+			take_interrupt(c, intevt);
+	}
+}
+
 void sh4_call(SH4 *c, u32 a)
 {
 	hw_tick(100);
@@ -344,6 +357,44 @@ static DWORD WINAPI watchdog_thread(void *arg)
 	watchdog_fired = 1;
 	return 0;
 }
+
+/* Hang report: when no frame has been drawn for 8 s (loading screens take under 1 s), the log
+   gets what the game is running: the call stack and the last calls through the dispatcher, read
+   from this thread while the game is stuck. Once per hang; M1_HANG_EXIT=1 (tests) then exits. */
+static DWORD WINAPI hang_thread(void *arg)
+{
+	(void)arg;
+	u64 render_count(void);
+	u64 last_renders = render_count(), last_calls = calls;
+	int still = 0, reported = 0;
+	for (;;)
+	{
+		Sleep(1000);
+		const u64 r = render_count();
+		if (r != last_renders)
+		{
+			last_renders = r;
+			still = reported = 0;
+			last_calls = calls;
+			continue;
+		}
+		if (++still < 8 || reported || r == 0)
+			continue;
+		reported = 1;
+		const u64 c = calls;
+		printf("\n=== hang: no frame for %d s (render %llu); %llu dispatcher calls since (%s)\n", still,
+			   (unsigned long long)r, (unsigned long long)(c - last_calls), c != last_calls ? "busy in game code" : "no calls: stuck in one function");
+		printf("current function %08x, depth %d\n", m1_current_function(), depth);
+		m1_print_stack(stdout);
+		printf("last calls (oldest first): target / pr / r4\n");
+		for (u64 i = c > 64 ? c - 64 : 0; i < c; i++)
+			printf("  %08x / %08x / %08x\n", recent[i % 64][0], recent[i % 64][1], recent[i % 64][2]);
+		fflush(stdout);
+		if (getenv("M1_HANG_EXIT"))
+			ExitProcess(3);
+	}
+	return 0;
+}
 #else
 static void on_alarm(int sig)
 {
@@ -405,6 +456,9 @@ int main(int argc, char **argv)
 	c.fpscr = 0x00040001;
 	sh4_set_host_fpmode(c.fpscr);
 
+#ifdef _WIN32
+	CreateThread(0, 0, hang_thread, 0, 0, 0);	/* a frozen game says where in the log */
+#endif
 	if (limit > 0)	/* development runs: stop after the time limit */
 	{
 #ifdef _WIN32

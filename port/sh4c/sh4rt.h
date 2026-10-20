@@ -288,6 +288,7 @@ void sh4_hook(SH4 *c, u32 addr);
 /* cycles of loop iterations not yet added to the virtual clock (backward branches add their
    length; the runtime drains it; harnesses without a clock define and ignore it) */
 extern u32 sh4_loop_cycles;
+void sh4_loop_poll(SH4 *c);	/* from tight loops: run the clock, take pending interrupts */
 /* pref @Rn: store-queue flush when Rn is in 0xE0000000-0xE3FFFFFF. */
 void sh4_pref(SH4 *c, u32 addr);
 void sh4_unimpl(SH4 *c, u32 addr, u32 op);

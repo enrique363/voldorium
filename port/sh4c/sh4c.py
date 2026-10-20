@@ -370,13 +370,16 @@ def loop_jump(t, a, inside):
     """goto for a branch at a to t. A tight backward branch (a loop of at most 32 instructions
     with no call in it, like the sound library's delay loops) first charges its length in
     instructions to the virtual clock (sh4_loop_cycles, drained by the runtime), so a busy-wait
-    takes time as on hardware. Other loops are timed by their calls, as before."""
+    takes time as on hardware. Every 4096 such instructions it calls sh4_loop_poll, which runs
+    the clock and takes pending interrupts as a call does: a loop that waits for a flag an
+    interrupt handler or another thread sets (the KO slow motion's wait, 8C024F6A) would
+    otherwise spin forever. Other loops are timed by their calls, as before."""
     if t not in inside:
         return f"{{ sh4_call(c, 0x{t:08x}u); return; }}"
     if t <= a and (a - t) // 2 + 2 <= 32:
         calls = ("jsr", "bsr", "bsrf", "jmp", "braf", "trapa")
         if not any(decode(u16(x))[0] in calls for x in range(t, a + 4, 2)):
-            return f"{{ sh4_loop_cycles += {(a - t) // 2 + 2}u; goto L_{t:08x}; }}"
+            return f"{{ sh4_loop_cycles += {(a - t) // 2 + 2}u; if (sh4_loop_cycles >= 4096u) sh4_loop_poll(c); goto L_{t:08x}; }}"
     return f"goto L_{t:08x};"
 
 
