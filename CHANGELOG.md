@@ -2,6 +2,14 @@
 
 All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); see the README.
 
+## Unreleased
+
+### Fixed
+- **No version number and no system text** when the game was started from another folder (a
+  shortcut or launcher whose "Start in" folder is not the Voldorium folder): the BIOS font
+  (`biosfont.bin`) was looked for in that folder. It is now always looked for next to
+  `Voldorium.exe`. The screen resolution was not the cause.
+
 ## 1.0.6 (2026-10-21)
 
 ### Fixed

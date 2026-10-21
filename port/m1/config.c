@@ -177,7 +177,19 @@ static void env_default(const char *name, const char *value)
 static void apply_settings(void)
 {
 	const char *v;
-	env_default("M1_FONT", config_get("game", "font"));
+	{
+		/* the BIOS font: a relative name is next to the executable, whatever folder the game was
+		   started from (a shortcut or launcher with another "start in" folder lost it: no system
+		   text, no version number in the main menu) */
+		const char *font = config_get("game", "font");
+		char abs_font[1100];
+		if (font && *font && exe_dir[0] && !(font[0] == '/' || font[0] == '\\' || (font[0] && font[1] == ':')))
+		{
+			snprintf(abs_font, sizeof(abs_font), "%s/%s", exe_dir, font);
+			font = abs_font;
+		}
+		env_default("M1_FONT", font);
+	}
 	if ((v = config_get("video", "fullscreen")) && atoi(v))
 		env_default("M1_FULLSCREEN", "1");
 	env_default("M1_WINDOW", config_get("video", "window"));
