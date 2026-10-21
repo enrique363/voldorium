@@ -2,7 +2,7 @@
 
 All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); see the README.
 
-## Unreleased
+## 1.0.5 (2026-10-21)
 
 ### Fixed
 - **Builder with the Microsoft Store Python** stopped with "unable to open output file ... No

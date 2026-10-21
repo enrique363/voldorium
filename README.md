@@ -90,7 +90,7 @@ it), which is what the online lobby needs to match players.
 | --- | --- |
 | `This dump is not SoulCalibur USA (T-1401N, V1.000)` | Only that release is supported. Check the `.gdi` is the USA disc and that its track files are complete. |
 | `no high-density data track` | Choose the `.gdi` file itself, with all its `.bin` / `.raw` track files in the same folder. |
-| `unable to open output file ... No such file or directory` | The Microsoft Store version of Python hides what it writes in `AppData` from the compiler. Fixed in the builder after 1.0.4 (it skips that Python and builds in `work\` here); with 1.0.4, install Python from python.org instead, or download the newest version. |
+| `unable to open output file ... No such file or directory` | The Microsoft Store version of Python hides what it writes in `AppData` from the compiler. Fixed in 1.0.5 (the builder skips that Python and builds in `work\` here); with older versions, install Python from python.org instead. |
 | `could not download ...` | Check the internet connection (or a firewall or proxy) and run the builder again. |
 | `does not match its pinned SHA-256` | The download was damaged or changed. Delete the `toolchain` folder and run the builder again; if it keeps happening, open an issue. |
 | Windows SmartScreen warns about the `.bat` | It is a plain text script: right-click it, **Edit**, to read it first. Then **More info**, **Run anyway**. |
