@@ -5,7 +5,7 @@
   "type": "recomp",
   "original": { "region": "USA", "revision": "1.000", "serial": "T-1401N" },
   "project": "Voldorium",
-  "status": "playable",
+  "status": "released",
   "targets": ["Windows"],
   "toolchain": "Sh4c",
   "approach": "Static recompilation of the SH-4 code to C with its own translator; native runtime with an OpenGL renderer, AICA audio and GGPO rollback",
