@@ -2,6 +2,12 @@
 
 All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); see the README.
 
+## Unreleased
+
+### Fixed
+- The version number in the main menu's corner was hard to see over the unlocked main menu's
+  bright background: it now has a dark outline, readable over any background.
+
 ## 1.0.5 (2026-10-21)
 
 ### Fixed

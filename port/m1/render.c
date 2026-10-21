@@ -1763,7 +1763,7 @@ static void draw_version(int rw, int rh)
 	const float s = rh / 480.0f * 0.75f;
 	const int w = (int)(ver_w * s + 0.5f), h = (int)(24 * s + 0.5f);
 	const int x = rw - (int)(10 * rh / 480.0f) - w, y = (int)(8 * rh / 480.0f);
-	const int sh = rh >= 720 ? 2 : 1;
+	const int sh = rh >= 1440 ? 3 : rh >= 720 ? 2 : 1;	/* outline width in pixels */
 	glUseProgram(ver_prog);
 	glBindVertexArray(blur_vao);
 	glDisable(GL_SCISSOR_TEST);
@@ -1772,8 +1772,18 @@ static void draw_version(int rw, int rh)
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	glBindTexture(GL_TEXTURE_2D, ver_tex);
-	glViewport(x + sh, y - sh, w, h);
-	glUniform4f(u_v_col, 0, 0, 0, 0.7f);
+	/* a dark outline (8 directions) and a drop shadow, so it reads over any menu background (the
+	   unlocked main menu's bright collage too) */
+	glUniform4f(u_v_col, 0, 0, 0, 0.85f);
+	for (int dy = -1; dy <= 1; dy++)
+		for (int dx = -1; dx <= 1; dx++)
+			if (dx || dy)
+			{
+				glViewport(x + dx * sh, y + dy * sh, w, h);
+				glDrawArrays(GL_TRIANGLES, 0, 3);
+			}
+	glViewport(x + 2 * sh, y - 2 * sh, w, h);
+	glUniform4f(u_v_col, 0, 0, 0, 0.6f);
 	glDrawArrays(GL_TRIANGLES, 0, 3);
 	glViewport(x, y, w, h);
 	glUniform4f(u_v_col, 0.92f, 0.92f, 0.92f, 0.9f);
