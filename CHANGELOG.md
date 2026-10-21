@@ -2,6 +2,14 @@
 
 All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); see the README.
 
+## Unreleased
+
+### Fixed
+- **Builder with the Microsoft Store Python** stopped with "unable to open output file ... No
+  such file or directory": that Python keeps what it writes under `AppData` in a private copy the
+  compiler cannot see. The builder skips it (it then uses its portable Python) and keeps its build
+  files in `work\` inside the folder instead of `AppData`. The game itself is unchanged.
+
 ## 1.0.4 (2026-10-21)
 
 ### Fixed

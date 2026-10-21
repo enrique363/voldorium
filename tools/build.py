@@ -36,7 +36,7 @@ SC = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PORT = os.path.join(SC, 'port')
 CACHE = os.path.join(SC, 'toolchain')
 LOCAL = os.environ.get('LOCALAPPDATA') or os.path.expanduser('~')
-OUT = os.path.join(LOCAL, 'sc-m1')          # objects and executables (outside the repository)
+OUT = os.path.join(LOCAL, 'sc-m1')          # objects and executables (outside the repository; --out moves them)
 
 # pinned downloads: name -> (url, sha256, folder inside toolchain/ once unpacked). The SHA-256s are
 # the ones GitHub publishes for the release files, and for Flycast's two files those of its commit
@@ -292,7 +292,17 @@ def main():
     ap.add_argument('--download', action='store_true', help='fetch missing tools into toolchain/')
     ap.add_argument('--player-dir', default=os.path.join(PORT, 'build', 'player'), help='where the player folder goes')
     ap.add_argument('--only', choices=['ggpo', 'game', 'player'], help='one step (for the build_*.sh wrappers)')
+    ap.add_argument('--out', help='objects and executables (default %%LOCALAPPDATA%%/sc-m1)')
     a = ap.parse_args()
+    global OUT
+    if a.out:
+        OUT = os.path.abspath(a.out)
+    if 'WindowsApps' in sys.executable:
+        # the Microsoft Store Python keeps what it writes under AppData in a private copy that the
+        # compiler does not see ("unable to open output file ... No such file or directory")
+        say('Note: this is the Microsoft Store Python; build files go to the work folder here instead.')
+        if not a.out:
+            OUT = os.path.join(SC, 'work')
     if sys.platform != 'win32':
         fail('this builds the Windows version; run it on Windows')
     t = time.time()

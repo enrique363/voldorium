@@ -12,11 +12,12 @@ echo This builds Voldorium from YOUR OWN legal disc dump of SoulCalibur (USA, T-
 echo No game files are downloaded; the game's code is translated from your dump, on this PC.
 echo.
 
-rem --- Python 3.10 or newer: an installed one, else a portable one in toolchain\python ---
+rem --- Python 3.10 or newer: an installed one, else a portable one in toolchain\python. Not the
+rem     Microsoft Store Python: it keeps what it writes under AppData where the compiler cannot see it
 set "PY="
 for %%P in (py python) do (
   if not defined PY (
-    %%P -c "import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)" >nul 2>&1 && set "PY=%%P"
+    %%P -c "import sys; sys.exit(0 if sys.version_info >= (3, 10) and 'WindowsApps' not in sys.executable else 1)" >nul 2>&1 && set "PY=%%P"
   )
 )
 if not defined PY if exist "toolchain\python\python.exe" set "PY=toolchain\python\python.exe"
@@ -45,7 +46,8 @@ if not defined GDI (
 echo Disc dump: %GDI%
 echo.
 
-"%PY%" -I tools\build.py --download --gdi "%GDI%" --player-dir "%~dp0Voldorium"
+rem build files in work\ here, not under AppData
+"%PY%" -I tools\build.py --download --gdi "%GDI%" --player-dir "%~dp0Voldorium" --out "%~dp0work"
 if errorlevel 1 goto failed
 echo.
 echo Finished. Start Voldorium.exe in the Voldorium folder (it opens now).
