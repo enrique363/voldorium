@@ -328,6 +328,8 @@ static void vblank_in(void)
 		printf("frame %u: game mode %u -> %u\n", frames, mode, m);
 		mode = m;
 	}
+	void video_record_vblank(void);
+	video_record_vblank();	/* M1_RECORD (render.c): one video frame per V Blank */
 	pace_frame();
 }
 

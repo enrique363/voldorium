@@ -147,6 +147,18 @@ static int rate(int c, int r)
 static const int adpcm_scale[8] = { 230, 230, 230, 230, 307, 409, 512, 614 };
 
 /* sample n of channel c, decoding ADPCM forward as needed */
+/* one ADPCM nibble (sample i from SA) into the decoder state */
+static void adpcm_nibble(u32 sa, Chan *k, u32 i)
+{
+	const u8 b = aica_ram[(sa + i / 2) & (RAM_SIZE - 1)];
+	const u32 nib = (i & 1) ? b >> 4 : b & 15;
+	const s32 delta = (s32)(((nib & 7) * 2 + 1) * (u32)k->ad_step) / 8;
+	k->ad_prev += (nib & 8) ? -delta : delta;
+	k->ad_prev = k->ad_prev > 32767 ? 32767 : k->ad_prev < -32768 ? -32768 : k->ad_prev;
+	k->ad_step = (k->ad_step * adpcm_scale[nib & 7]) >> 8;
+	k->ad_step = k->ad_step < 127 ? 127 : k->ad_step > 24576 ? 24576 : k->ad_step;
+}
+
 static s32 fetch(int c, Chan *k, u32 n)
 {
 	const u32 r0 = creg(c, 0x00);
@@ -164,19 +176,13 @@ static s32 fetch(int c, Chan *k, u32 n)
 	{
 		k->have++;
 		const u32 i = k->have;
-		if (i == creg(c, 0x08) && !k->loop_saved)	/* entering the loop: keep the state for repeats */
+		if (fmt == 2 && i == creg(c, 0x08) && !k->loop_saved)	/* entering the loop: keep the state for repeats */
 		{
 			k->loop_prev = k->ad_prev;
 			k->loop_step = k->ad_step;
 			k->loop_saved = 1;
 		}
-		const u8 b = aica_ram[(sa + i / 2) & (RAM_SIZE - 1)];
-		const u32 nib = (i & 1) ? b >> 4 : b & 15;
-		const s32 delta = (s32)(((nib & 7) * 2 + 1) * (u32)k->ad_step) / 8;
-		k->ad_prev += (nib & 8) ? -delta : delta;
-		k->ad_prev = k->ad_prev > 32767 ? 32767 : k->ad_prev < -32768 ? -32768 : k->ad_prev;
-		k->ad_step = (k->ad_step * adpcm_scale[nib & 7]) >> 8;
-		k->ad_step = k->ad_step < 127 ? 127 : k->ad_step > 24576 ? 24576 : k->ad_step;
+		adpcm_nibble(sa, k, i);
 	}
 	return k->ad_prev;
 }
@@ -463,9 +469,21 @@ static void channel(int c, float *l, float *r)
 			if ((r0 >> 9) & 1)
 			{
 				k->pos = lsa + (k->pos - lea);
-				if (((r0 >> 7) & 3) >= 2)
+				const u32 fmt = (r0 >> 7) & 3;
+				if (fmt == 2)
 				{
+					/* ADPCM: the loop repeats the same data, from the decoder state at LSA */
 					k->ad_prev = k->loop_prev, k->ad_step = k->loop_step;
+					k->have = lsa;
+				}
+				else if (fmt == 3)
+				{
+					/* ADPCM long stream: the loop is a ring buffer the game keeps refilling, so the
+					   decoder carries on (its state is not restored, as on the chip and in
+					   Flycast); before, decoding stopped until the position passed the old end
+					   again, holding one value for a whole lap: dropouts and level jumps */
+					const u32 sa = ((r0 & 0x7f) << 16) | creg(c, 0x04);
+					adpcm_nibble(sa, k, lsa);
 					k->have = lsa;
 				}
 			}
@@ -717,7 +735,8 @@ static void output_init(void)
 		return;
 	done = 1;
 	const char *w = getenv("M1_WAV");
-	if (w && (wav = fopen(w, "wb")))
+	const char *record_name(const char *path);	/* render.c: name-1.wav when name.wav exists */
+	if (w && (wav = fopen(record_name(w), "wb")))
 		wav_header();
 	if (getenv("M1_HEADLESS") || getenv("M1_NOSOUND"))
 		return;

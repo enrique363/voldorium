@@ -687,6 +687,26 @@ between two machines over the internet (see `build/player/README.txt` for the ch
 Not checked against the no-stretch rule yet: the gallery, mission and option screens (the test
 scripts do not reach them).
 
+## Music drop-outs: ADPCM long streams (2026-10-21)
+
+The intro's music (and stage music) cut out and jumped in level. Measured against the oracle
+Flycast with its WAV hook (`SC_WAV`, `m0/flycast-hooks/apply_wav_hook.py`): ours swung between
+-8 and -35 dB where Flycast stayed at -11 to -18. The music is two streamed channels (left,
+right) in PCMS 3, "ADPCM long stream": the loop LSA-LEA is a ring buffer the sound driver keeps
+refilling. At each lap `channel` restored the decoder state saved at LSA (right for PCMS 2, which
+repeats the same data) and set `have` back, but in stream mode the state had not been saved, and
+`fetch` only decodes forward from `have`: after the wrap it decoded nothing until the position
+passed the old end again, holding one value for a lap. Now PCMS 3 decodes on from LSA without
+restoring anything (as Flycast, `sgc_if.cpp`, `PCMS == ADPCM` only). Level now follows Flycast
+within 1.0 dB. The DSP reverb adds about 2.7 dB on top and clips about 66 samples a second in
+loud passages; Flycast's oracle runs with its DSP off (`aica.DSPEnabled` is false by default),
+so its level cannot be checked against it.
+
+Footage: `M1_RECORD=out.mp4` (render.c `video_record_vblank`): every V Blank, the last frame at
+`M1_RESOLUTION` goes to ffmpeg (`M1_FFMPEG`) at 60 fps, black before the first frame, so it
+starts with `M1_WAV`; `M1_RECORD_FROM=n` skips the first n V Blanks. A file that exists gets a
+`-1`, `-2` suffix (a lobby match restarts the program), for the WAV too.
+
 ## Arcade freeze: wait loops and interrupts (2026-10-20)
 
 Arcade mode froze after a few fights. A hang report (new: `m1.c` `hang_thread`, after 8 s

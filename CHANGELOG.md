@@ -2,6 +2,19 @@
 
 All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); see the README.
 
+## Unreleased
+
+### Fixed
+- **Music dropped out and jumped in level** (the intro, stage music): streamed music plays from a
+  ring buffer in the AICA's "ADPCM long stream" mode, and at each lap the decoder either restored
+  an old state or stopped decoding until it caught up, holding one value for a whole lap. It now
+  carries on through the loop, as the chip does. The intro's level now follows Flycast's within
+  1 dB (it swung by up to 20 dB).
+
+### Added
+- Footage recording for videos: `M1_RECORD=file.mp4` (with `M1_FFMPEG` and `M1_RESOLUTION`)
+  writes one frame per emulated refresh to ffmpeg, in step with `M1_WAV`; it runs at any speed.
+
 ## 1.0.3 (2026-10-20)
 
 ### Fixed

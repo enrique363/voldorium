@@ -1605,6 +1605,104 @@ static void render_to_texture(TaCtx *c)
 u64 render_rtt_count(void) { return rtt_count; }
 u64 render_count(void) { return rendered; }
 
+/* M1_RECORD=out.mp4 (footage): every V Blank, the last finished frame (at the drawing resolution,
+   M1_RESOLUTION) goes to ffmpeg (M1_FFMPEG, default "ffmpeg") at exactly 60 frames a second, so
+   it lines up with M1_WAV, which is made from the same virtual clock; a frame is repeated while
+   the game draws nothing (loading). Runs at any speed (M1_FAST): nothing depends on real time.
+   M1_RECORD_FROM=n: start at V Blank n. */
+/* an output name not taken yet: a lobby match restarts the program, and the new process must
+   not overwrite its parent's recording (name.mp4, then name-1.mp4, ...); also for M1_WAV */
+const char *record_name(const char *path)
+{
+	static char buf[4][1024];
+	static int k;
+	char *b = buf[k++ & 3];
+	snprintf(b, 1024, "%s", path);
+	const char *dot = strrchr(path, '.');
+	const int stem = dot ? (int)(dot - path) : (int)strlen(path);
+	for (int n = 1; n < 100; n++)
+	{
+		FILE *f = fopen(b, "rb");
+		if (!f)
+			break;
+		fclose(f);
+		snprintf(b, 1024, "%.*s-%d%s", stem, path, n, dot ? dot : "");
+	}
+	return b;
+}
+static FILE *rec_pipe;
+static u8 *rec_px;
+static int rec_w, rec_h;
+static u64 rec_vblank, rec_frames;
+static void rec_close(void)
+{
+	if (rec_pipe)
+	{
+#ifdef _WIN32
+		_pclose(rec_pipe);
+#else
+		pclose(rec_pipe);
+#endif
+		rec_pipe = 0;
+		printf("record: %llu frames\n", (unsigned long long)rec_frames);
+	}
+}
+void video_record_vblank(void)
+{
+	static int on = -1;
+	static u64 from;
+	if (on < 0)
+	{
+		on = getenv("M1_RECORD") != 0 && video_enabled();
+		from = getenv("M1_RECORD_FROM") ? strtoull(getenv("M1_RECORD_FROM"), 0, 10) : 0;
+	}
+	const u64 vb = rec_vblank++;
+	if (!on || vb < from)
+		return;
+	if (!rec_pipe)
+	{
+		/* the size comes from M1_RESOLUTION: the first V Blanks come before the first frame and
+		   are recorded black, so the video starts with the audio (M1_WAV) */
+		if (!res_w)
+		{
+			printf("record: set M1_RESOLUTION (for example 3840x2160)\n");
+			on = 0;
+			return;
+		}
+		rec_w = res_w, rec_h = res_h;
+		char cmd[2048];
+		const char *ff = getenv("M1_FFMPEG") ? getenv("M1_FFMPEG") : "ffmpeg";
+		const char *out = record_name(getenv("M1_RECORD"));
+		snprintf(cmd, sizeof(cmd), "\"\"%s\" -loglevel error -y -f rawvideo -pix_fmt rgb24 -s %dx%d -r 60 -i - -vf vflip "
+				 "-c:v libx264 -preset fast -crf 12 -pix_fmt yuv420p \"%s\"\"", ff, rec_w, rec_h, out);
+#ifdef _WIN32
+		rec_pipe = _popen(cmd, "wb");
+#else
+		rec_pipe = popen(cmd, "w");
+#endif
+		if (!rec_pipe)
+		{
+			printf("record: cannot start %s\n", ff);
+			on = 0;
+			return;
+		}
+		rec_px = malloc((size_t)rec_w * rec_h * 3);
+		atexit(rec_close);
+		printf("record: %dx%d at 60 fps from V Blank %llu to %s\n", rec_w, rec_h, (unsigned long long)vb, getenv("M1_RECORD"));
+	}
+	if (!resolve_fbo || frame_w != rec_w || frame_h != rec_h)
+		memset(rec_px, 0, (size_t)rec_w * rec_h * 3);	/* nothing drawn yet: black */
+	else
+	{
+		glBindFramebuffer(GL_READ_FRAMEBUFFER, resolve_fbo);
+		glPixelStorei(GL_PACK_ALIGNMENT, 1);
+		glReadPixels(0, 0, rec_w, rec_h, GL_RGB, GL_UNSIGNED_BYTE, rec_px);
+		glBindFramebuffer(GL_FRAMEBUFFER, frame_fbo);
+	}
+	fwrite(rec_px, 1, (size_t)rec_w * rec_h * 3, rec_pipe);
+	rec_frames++;
+}
+
 static void render_frame_draw(TaCtx *c);
 
 /* "ver. 1.0.1" in the lower right corner, in the BIOS font like the game's help line, white with
