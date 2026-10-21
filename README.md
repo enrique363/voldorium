@@ -1,5 +1,7 @@
 # Voldorium
 
+[![Latest release](https://img.shields.io/github/v/release/enrique363/voldorium?label=latest%20release)](https://github.com/enrique363/voldorium/releases/latest)
+
 A native Windows port of the Dreamcast fighting game **SoulCalibur** (USA, T-1401N, V1.000),
 made by static recompilation: the game's SH-4 machine code is translated into C and compiled
 together with a small native runtime that stands in for the Dreamcast hardware. It adds:
@@ -90,7 +92,7 @@ it), which is what the online lobby needs to match players.
 | --- | --- |
 | `This dump is not SoulCalibur USA (T-1401N, V1.000)` | Only that release is supported. Check the `.gdi` is the USA disc and that its track files are complete. |
 | `no high-density data track` | Choose the `.gdi` file itself, with all its `.bin` / `.raw` track files in the same folder. |
-| `unable to open output file ... No such file or directory` | The Microsoft Store version of Python hides what it writes in `AppData` from the compiler. Fixed in 1.0.5 (the builder skips that Python and builds in `work\` here); with older versions, install Python from python.org instead. |
+| `unable to open output file ... No such file or directory` | You have an old version of the builder and the Microsoft Store version of Python, which hides what it writes in `AppData` from the compiler. Download the latest release: its builder skips that Python. |
 | `could not download ...` | Check the internet connection (or a firewall or proxy) and run the builder again. |
 | `does not match its pinned SHA-256` | The download was damaged or changed. Delete the `toolchain` folder and run the builder again; if it keeps happening, open an issue. |
 | Windows SmartScreen warns about the `.bat` | It is a plain text script: right-click it, **Edit**, to read it first. Then **More info**, **Run anyway**. |
