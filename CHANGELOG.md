@@ -2,7 +2,7 @@
 
 All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); see the README.
 
-## Unreleased
+## 1.0.4 (2026-10-21)
 
 ### Fixed
 - **Music dropped out and jumped in level** (the intro, stage music): streamed music plays from a
