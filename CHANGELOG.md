@@ -2,7 +2,7 @@
 
 All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); see the README.
 
-## Unreleased
+## 1.0.7 (2026-10-21)
 
 ### Fixed
 - **No version number and no system text** when the game was started from another folder (a

@@ -3,7 +3,7 @@
 #include "sh4rt.h"
 #include <stdio.h>
 
-#define VOLDORIUM_VERSION "1.0.6"	/* shown in the window title and on the main menu (render.c); also voldorium.rc */
+#define VOLDORIUM_VERSION "1.0.7"	/* shown in the window title and on the main menu (render.c); also voldorium.rc */
 
 extern SH4 *m1_cpu;
 void m1_stop(const char *why);
