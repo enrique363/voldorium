@@ -132,8 +132,9 @@ Settings (`voldorium.ini`): `[video] fullscreen, resolution, window, msaa, backg
 ## Steam Deck (and other Linux PCs)
 
 The Windows build runs through Proton. It is the same program as on Windows, so Online Versus
-matches Steam Deck players with Windows players built from the same sources. (Not yet tested on
-a real Deck: reports are welcome.)
+matches Steam Deck players with Windows players built from the same sources. Tested under Wine
+10 on Linux (boot, menus, fights, and a lobby match against a Windows PC, in step frame for
+frame); not yet on a real Deck: reports are welcome.
 
 1. Build on a Windows PC as above, then copy the whole `Voldorium` folder to the Deck (USB
    stick, SD card or network share), together with your disc dump (the `.gdi` and its track
