@@ -55,6 +55,14 @@ Players on other networks (over the internet) appear in the same list, through t
 server: still no ports to set. If your router blocks a direct connection, the match goes
 through the server's relay automatically.
 
+Steam Deck
+----------
+Copy this whole folder and your disc dump to the Deck. In Desktop Mode, Steam > Games > Add a
+Non-Steam Game to My Library > Voldorium.exe; then in its Properties > Compatibility, force a
+recent Proton. The first start asks for the disc dump. It is the same program as on Windows, so
+Online Versus works between Deck and Windows players with the same build. The 1280x800 screen
+shows the game in 16:9 with thin bars above and below.
+
 Memory card
 -----------
 The game has a memory card (VMU) in controller port A: vmu_a1.bin next to the executable holds

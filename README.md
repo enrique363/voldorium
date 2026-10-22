@@ -129,6 +129,26 @@ Settings (`voldorium.ini`): `[video] fullscreen, resolution, window, msaa, backg
 (`stretch`, `blur` or `replace`), `[net] lobby, name`, `[game] disc, vmu`. More detail is in
 `port/README.md` and in the README.txt of the player folder.
 
+## Steam Deck (and other Linux PCs)
+
+The Windows build runs through Proton. It is the same program as on Windows, so Online Versus
+matches Steam Deck players with Windows players built from the same sources. (Not yet tested on
+a real Deck: reports are welcome.)
+
+1. Build on a Windows PC as above, then copy the whole `Voldorium` folder to the Deck (USB
+   stick, SD card or network share), together with your disc dump (the `.gdi` and its track
+   files).
+2. In Desktop Mode, open Steam, choose **Games > Add a Non-Steam Game to My Library**, browse
+   to `Voldorium.exe` and add it.
+3. In the game's **Properties > Compatibility**, tick **Force the use of a specific Steam Play
+   compatibility tool** and pick a recent Proton.
+4. Start it. The first time, a file picker asks for your disc dump (the touchscreen works there),
+   the same as on Windows.
+
+The Deck's controls work as a controller (Steam Input). Its 1280x800 screen shows the game in
+16:9 with thin bars above and below: the game's picture is 16:9 on every screen, so that online
+players see the same game. The defaults (full screen, VSync on) suit the Deck's 60 Hz screen.
+
 ## Hosting a lobby server
 
 The game uses a public lobby by default. To run your own, see `port/lobby/README.md`
