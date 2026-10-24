@@ -97,7 +97,34 @@ static void gd_execute(void)
 	switch (gd.cmd)
 	{
 	case 0x10:	/* PIOREAD: fad, sectors, buffer, 0 */
-	case 0x11:	/* DMAREAD: same; done at once here */
+	case 0x11:	/* DMAREAD: same, ends with the GD-DMA interrupt */
+	{
+		/* A DMA read takes the drive's time, in emulated cycles, as in Flycast's HLE BIOS: 5
+		   sectors per 1,000,000 cycles (5 ms, about 2 MB/s), the last few at the G1 bus rate.
+		   With instant reads the VS screen before a fight was cut short: the stage's textures
+		   replaced its pictures while it was still shown (garbage frames) and its side pan never
+		   played. Fights keep instant reads: the game streams from the disc during them, and
+		   rollback (netplay) does not rewind the drive. PIO reads are instant there too.
+		   M1_GDINSTANT=1: instant reads everywhere. */
+		static int instant = -1;
+		static u64 ready;
+		if (instant < 0)
+			instant = getenv("M1_GDINSTANT") && atoi(getenv("M1_GDINSTANT"));
+		if (gd.cmd == 0x11 && !instant && rd32(0x8c24a584) != 1)
+		{
+			extern u64 m1_cycles(void);
+			if (!ready)
+			{
+				u64 t = 0;
+				for (u32 left = p[1]; left; left -= left < 5 ? left : 5)
+					t += left * 2048 > 10240 ? 1000000 : left * 2048 * 2;
+				ready = m1_cycles() + t;
+				return;	/* busy until then (EXEC_SERVER calls this again) */
+			}
+			if (m1_cycles() < ready)
+				return;
+		}
+		ready = 0;
 		if (m1_verbose)
 			printf("GD %s fad %u count %u -> %08x\n", gd_cmd_name(gd.cmd), p[0] & 0xffffff, p[1], p[2]);
 		read_sectors(p[2], p[0] & 0xffffff, p[1]);
@@ -110,6 +137,7 @@ static void gd_execute(void)
 			hw_raise(14);
 		}
 		break;
+	}
 	case 0x18:	/* INIT */
 	case 0x16:	/* PAUSE */
 	case 0x21:	/* STOP */

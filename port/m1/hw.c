@@ -414,9 +414,11 @@ static void vram_log(const char *path, u32 addr, u32 len)
 		rlen += len;
 		return;
 	}
+	extern u64 render_count(void);
+	static u64 rrender;
 	if (rpath)
 	{
-		fprintf(f, "%u %s %08x %u %08x\n", rframe, rpath, rstart, rlen, rfunc);
+		fprintf(f, "%u render %llu %s %08x %u %08x\n", rframe, (unsigned long long)rrender, rpath, rstart, rlen, rfunc);
 		fflush(f);
 		n++;
 	}
@@ -424,6 +426,7 @@ static void vram_log(const char *path, u32 addr, u32 len)
 	rstart = addr;
 	rlen = len;
 	rframe = frames;
+	rrender = render_count();
 	rfunc = m1_current_function();
 }
 

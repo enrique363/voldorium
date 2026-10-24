@@ -26,6 +26,12 @@ Fixes from the first issue report (enrique363/voldorium#1).
   markers, with a blurred copy of the map at the sides.
 - **Character select (Practice, VS): the two big portraits were stretched** once both players
   had picked: they are no longer taken for a background picture.
+- **Before each fight: a garbled VS screen, and the VS screen rushed** (enrique363/voldorium#2).
+  Disc reads were instant, so the VS screen was cut short and its sideways sweep-in barely
+  played, and the stage's textures replaced its pictures while it was still shown. Disc reads
+  outside fights now take the Dreamcast drive's time (as in Flycast), so the VS screen lasts as
+  long as on the console, and its last whole picture stays on screen while the fight loads.
+  Fights keep instant reads (online play is not affected).
 
 ## 1.0.7 (2026-10-21)
 

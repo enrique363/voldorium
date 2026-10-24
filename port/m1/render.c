@@ -2113,6 +2113,17 @@ void render_frame(TaCtx *c)
 static void render_frame_draw(TaCtx *c)
 {
 	rendered++;
+	{
+		/* M1_MODELOG=1: each game mode change, with the render and the video frame (to compare
+		   timings with Flycast's heartbeat) */
+		static u32 last = ~0u;
+		if (getenv("M1_MODELOG") && rd32(0x8c24a584) != last)
+		{
+			extern u64 m1_cycles(void);
+			printf("modelog render %llu frame %llu: mode %u\n", (unsigned long long)rendered, (unsigned long long)(m1_cycles() / 3333333u),
+				   last = rd32(0x8c24a584));
+		}
+	}
 	dump_list(c);
 	if (!video_enabled() || !c)
 		return;
@@ -2138,8 +2149,31 @@ static void render_frame_draw(TaCtx *c)
 	glClearDepth(1.0);
 	glDepthMask(GL_TRUE);
 	glStencilMask(0xff);
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-	draw_lists(c);
+	/* VS screen -> fight (game modes 17, then 0): once the stage's textures are copied into video
+	   memory (a megabyte or more at once), the VS screen's last few frames would draw its pictures
+	   from the stage's textures. The last whole picture is shown again instead, until the fight
+	   starts. Pages of video memory written since the previous frame, from their generations */
+	static int hold;
+	{
+		static u32 gens[VRAM_SIZE >> 12];
+		u32 changed = 0;
+		for (u32 pg = 0; pg < (VRAM_SIZE >> 12); pg++)
+		{
+			const u32 g = hw_vram_gen(pg);
+			changed += g != gens[pg];
+			gens[pg] = g;
+		}
+		const u32 mode = rd32(0x8c24a584);
+		if (mode != 17 && mode != 0)
+			hold = 0;
+		else if (changed >= 256)
+			hold = 1;
+	}
+	if (!hold)
+	{
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+		draw_lists(c);
+	}
 	if (rd32(0x8c24a584) == 11)	/* game mode 11: the main menu */
 		draw_version(rw, rh);
 	/* resolve the samples, then the screenshots read the finished picture */
