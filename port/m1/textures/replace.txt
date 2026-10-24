@@ -1,0 +1,2 @@
+# replacement art (port/m1/tex.c): hash x y w h file; made by tools/hitlabels.py
+9394ed120afb08e4 0 128 256 128 hitlabels.png

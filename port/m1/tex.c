@@ -169,6 +169,8 @@ typedef struct
 	int hi_volatile;			/* changes too often to upscale: an animation, drawn plain */
 	u32 hi_count;				/* upscales since hi_since */
 	u64 hi_since;				/* render count */
+	unsigned rep_id;			/* with replacement art (tex_get_rep), 0: none */
+	u64 rep_key;				/* the contents rep_id was made for (hash ^ pal_hash), 0: not checked */
 } TexEntry;
 static TexEntry cache[NTEX];
 static u64 decodes, rehashed;
@@ -268,8 +270,12 @@ static TexEntry *lookup(u32 tcw, u32 tsp)
 			want = getenv("M1_TEXLOG") ? atol(getenv("M1_TEXLOG")) : -1;
 		u64 render_count(void);
 		if ((long)render_count() == want)
-			printf("texlog: tcw %08x %ux%u fmt %u pal %d start %06x span %u gen %s\n", tcw, w, hh, (tcw >> 27) & 7, pal, start, span,
-				   e->used && e->tcw == tcw ? (range_gen(e->start, e->span) != e->gen_sum ? "vram" : "palette") : "new");
+			printf("texlog: tcw %08x %ux%u fmt %u pal %d start %06x span %u gen %s hash %016llx\n", tcw, w, hh, (tcw >> 27) & 7, pal, start,
+				   span, e->used && e->tcw == tcw ? (range_gen(e->start, e->span) != e->gen_sum ? "vram" : "palette") : "new",
+				   (unsigned long long)range_hash(start, span ? span : 8));
+		if ((long)render_count() == want && ((tcw >> 27) & 7) == 5)
+			for (u32 i = 0; i < 16; i++)	/* a 4-bit texture's palette (for replacement art) */
+				printf("texlog:   palette %2u: %08x\n", i, palette((((tcw >> 21) & 63) << 4) | i));
 	}
 	e->id = gl_upload_texture(e->used ? e->id : 0, w, hh, buf);
 	if (!e->used || e->tcw != tcw || e->size != size)
@@ -284,6 +290,7 @@ static TexEntry *lookup(u32 tcw, u32 tsp)
 	e->hash = range_hash(e->start, e->span);
 	e->pal_hash = pal ? bank_hash(tcw) : 0;
 	e->hi_ok = 0;
+	e->rep_key = 0;
 	return e;
 }
 
@@ -437,6 +444,160 @@ unsigned tex_get_hi(u32 tcw, u32 tsp, int *scale)
 		e->hi_ok = 1;
 	}
 	return e->hi_id;
+}
+
+/* ---- replacement art ------------------------------------------------------------------------
+ * M1_TEXTURES (the player build: textures next to the executable) holds replace.txt, one line
+ * per piece of new art:  <hash> <x> <y> <w> <h> <file.png>
+ * hash: the texture's VRAM bytes (M1_TEXLOG prints it; the palette does not count), x y w h:
+ * the texels the art covers, file: k times that size (k a whole number, the same for every
+ * piece of one texture), so the art keeps the original's proportions. The texture is then drawn
+ * from a copy k times as large: the original enlarged with bilinear filtering, the art pasted
+ * over its texels. For a paletted texture the art is in palette terms, so every colouring the
+ * game picks works: red and green = two palette entries, blue = the mix from the first to the
+ * second (0-255), alpha = coverage. Other textures: plain RGBA. */
+typedef struct
+{
+	u64 hash;
+	u32 x, y, w, h;
+	char file[64];
+	int loaded;		/* 1 read, -1 could not be read */
+	u8 *px;
+	u32 pw, ph;
+} Rep;
+static Rep reps[64];
+static int nreps, reps_ready;
+static char rep_dir[512];
+
+unsigned char *png_load(const char *path, unsigned *w, unsigned *h, const char **err);
+
+static void reps_init(void)
+{
+	reps_ready = 1;
+	const char *d = getenv("M1_TEXTURES");
+	if (!d || !*d)
+		return;
+	snprintf(rep_dir, sizeof(rep_dir), "%s", d);
+	char path[600], line[256];
+	snprintf(path, sizeof(path), "%s/replace.txt", rep_dir);
+	FILE *f = fopen(path, "r");
+	if (!f)
+		return;
+	while (fgets(line, sizeof(line), f) && nreps < (int)(sizeof(reps) / sizeof(reps[0])))
+	{
+		Rep *r = &reps[nreps];
+		unsigned long long h;
+		if (line[0] != '#' && sscanf(line, "%llx %u %u %u %u %63s", &h, &r->x, &r->y, &r->w, &r->h, r->file) == 6 && r->w && r->h)
+			r->hash = h, nreps++;
+	}
+	fclose(f);
+	printf("textures: %d replacement pieces in %s\n", nreps, rep_dir);
+}
+
+static u32 lerp_rgba(u32 a, u32 b, u32 t)
+{
+	u32 out = 0;
+	for (int sh = 0; sh < 32; sh += 8)
+		out |= ((((a >> sh) & 255) * (255 - t) + ((b >> sh) & 255) * t + 127) / 255) << sh;
+	return out;
+}
+
+/* the texture with its replacement art (render.c draws it with bilinear filtering), 0 when it
+   has none */
+unsigned tex_get_rep(u32 tcw, u32 tsp)
+{
+	if (!reps_ready)
+		reps_init();
+	if (!nreps)
+		return 0;
+	TexEntry *e = lookup(tcw, tsp);
+	const u64 key = (e->hash ^ e->pal_hash) | 1;
+	if (e->rep_key == key)
+		return e->rep_id;
+	e->rep_key = key;
+	const u32 w = 8u << ((tsp >> 3) & 7), h = (tcw >> 31) ? w : 8u << (tsp & 7);
+	u32 k = 0;
+	for (int i = 0; i < nreps; i++)
+	{
+		Rep *r = &reps[i];
+		if (r->hash != e->hash)
+			continue;
+		if (!r->loaded)
+		{
+			char path[700];
+			const char *err = "";
+			snprintf(path, sizeof(path), "%s/%s", rep_dir, r->file);
+			r->px = png_load(path, &r->pw, &r->ph, &err);
+			r->loaded = r->px && r->pw % r->w == 0 && r->ph % r->h == 0 && r->pw / r->w == r->ph / r->h ? 1 : -1;
+			if (r->loaded < 0)
+				printf("textures: %s: %s\n", path, r->px ? "not a whole multiple of its texels" : err);
+		}
+		if (r->loaded > 0 && r->x + r->w <= w && r->y + r->h <= h)
+			k = r->pw / r->w;
+	}
+	if (!k || w * k > 2048 || h * k > 2048)
+		return e->rep_id = 0;
+	static u32 *a, *b;
+	if (!a)
+	{
+		a = malloc(1024 * 1024 * sizeof(u32));
+		b = malloc(2048 * 2048 * sizeof(u32));
+	}
+	decode(tcw, w, h, a);
+	/* the original, enlarged with bilinear filtering on premultiplied colour */
+	for (u32 Y = 0; Y < h * k; Y++)
+	{
+		const float fy = (Y + 0.5f) / k - 0.5f;
+		const int y0 = (int)floorf(fy);
+		const float ty = fy - y0;
+		for (u32 X = 0; X < w * k; X++)
+		{
+			const float fx = (X + 0.5f) / k - 0.5f;
+			const int x0 = (int)floorf(fx);
+			const float tx = fx - x0;
+			float acc[4] = { 0, 0, 0, 0 };
+			for (int j = 0; j < 4; j++)
+			{
+				int x = x0 + (j & 1), y = y0 + (j >> 1);
+				x = x < 0 ? 0 : x >= (int)w ? (int)w - 1 : x;
+				y = y < 0 ? 0 : y >= (int)h ? (int)h - 1 : y;
+				const float wt = ((j & 1) ? tx : 1 - tx) * ((j >> 1) ? ty : 1 - ty);
+				const u32 c = a[(u32)y * w + (u32)x];
+				const float al = (float)(c >> 24);
+				acc[0] += wt * (c & 255) * al, acc[1] += wt * (c >> 8 & 255) * al, acc[2] += wt * (c >> 16 & 255) * al;
+				acc[3] += wt * al;
+			}
+			u32 out = (u32)(acc[3] + 0.5f) << 24;
+			for (int c = 0; c < 3 && acc[3] > 0.5f; c++)
+			{
+				const float v = acc[c] / acc[3];
+				out |= (u32)(v > 255 ? 255 : v + 0.5f) << (8 * c);
+			}
+			b[(size_t)Y * w * k + X] = out;
+		}
+	}
+	const u32 fmt = (tcw >> 27) & 7;
+	const u32 bank = fmt == 5 ? ((tcw >> 21) & 63) << 4 : ((tcw >> 25) & 3) << 8;
+	for (int i = 0; i < nreps; i++)
+	{
+		const Rep *r = &reps[i];
+		if (r->hash != e->hash || r->loaded <= 0 || r->pw != r->w * k || r->x + r->w > w || r->y + r->h > h)
+			continue;
+		for (u32 y = 0; y < r->ph; y++)
+			for (u32 x = 0; x < r->pw; x++)
+			{
+				const u8 *q = r->px + ((size_t)y * r->pw + x) * 4;
+				u32 c = q[0] | q[1] << 8 | q[2] << 16 | (u32)q[3] << 24;
+				if (fmt == 5 || fmt == 6)
+				{
+					const u32 m = lerp_rgba(palette(bank + q[0]), palette(bank + q[1]), q[2]);
+					c = (m & 0xffffff) | ((m >> 24) * q[3] + 127) / 255 << 24;
+				}
+				b[(size_t)(r->y * k + y) * w * k + r->x * k + x] = c;
+			}
+	}
+	e->rep_id = gl_upload_texture(e->rep_id, w * k, h * k, b);
+	return e->rep_id;
 }
 
 u64 tex_decodes(void) { return decodes; }

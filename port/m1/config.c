@@ -203,6 +203,8 @@ static void apply_settings(void)
 		char art[1100];	/* 16:9 replacement pictures (artswap.c) */
 		snprintf(art, sizeof(art), "%s/art16x9", exe_dir);
 		env_default("M1_ART16X9", art);
+		snprintf(art, sizeof(art), "%s/textures", exe_dir);	/* replacement art (tex.c) */
+		env_default("M1_TEXTURES", art);
 	}
 	if ((v = config_get("video", "msaa")) && atoi(v))
 		env_default("M1_MSAA", v);

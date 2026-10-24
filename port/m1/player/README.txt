@@ -85,6 +85,10 @@ Text: menu and HUD text is drawn from upscaled copies of the game's font texture
 its size with smooth edges at high resolutions. [video] text = sharp draws it as the original
 pixels instead.
 
+HD art: the textures folder holds new, high resolution art that the game's textures are drawn
+with instead: the HIGH / MID / S-MID / LOW and "!" labels shown at a hit in Practice
+(textures/replace.txt lists each piece; delete the folder for the original pictures).
+
 Manual connection (GGPO rollback, any network)
 ----------------------------------------------
 Without the lobby, two players can also connect from a command prompt in this folder, both at

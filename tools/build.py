@@ -269,6 +269,9 @@ def step_player(player, gdi):
         if os.path.exists(os.path.join(OUT, f)):
             shutil.copy2(os.path.join(OUT, f), player)
     shutil.copy2(os.path.join(SC, 'ggpo', 'savestate_ranges.tsv'), player)
+    os.makedirs(os.path.join(player, 'textures'), exist_ok=True)   # replacement art (port/m1/tex.c)
+    for f in os.listdir(os.path.join(PORT, 'm1', 'textures')):
+        shutil.copy2(os.path.join(PORT, 'm1', 'textures', f), os.path.join(player, 'textures'))
     refs = os.path.join(PORT, 'art16x9', 'refs.txt')   # made from your own dump, not in git
     if os.path.exists(refs):
         shutil.copy2(refs, os.path.join(player, 'art16x9'))

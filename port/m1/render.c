@@ -116,6 +116,7 @@ static int gl_load(void) { return 1; }
 
 u32 hw_reg(u32 addr);
 unsigned tex_get(u32 tcw, u32 tsp);
+unsigned tex_get_rep(u32 tcw, u32 tsp);
 unsigned tex_get_hi(u32 tcw, u32 tsp, int *scale);
 
 static SDL_Window *win;
@@ -783,7 +784,13 @@ static void set_state(const TaPoly *p, int list)
 	if (smooth < 0)
 		smooth = !getenv("M1_SMOOTH2D") || atoi(getenv("M1_SMOOTH2D"));
 	int hi = 1;
-	if (smooth && tgt_w == 640 && vp_h > 600 && p->cls >= M1_2D_HUD && p->cls <= M1_2D_SCREEN)
+	unsigned rep;
+	if ((rep = tex_get_rep(p->tcw, tsp)))
+	{
+		glBindTexture(GL_TEXTURE_2D, rep);	/* replacement art (tex.c) */
+		filt = GL_LINEAR;
+	}
+	else if (smooth && tgt_w == 640 && vp_h > 600 && p->cls >= M1_2D_HUD && p->cls <= M1_2D_SCREEN)
 	{
 		glBindTexture(GL_TEXTURE_2D, tex_get_hi(p->tcw, tsp, &hi));
 		if (hi > 1)

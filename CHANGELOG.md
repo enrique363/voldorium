@@ -39,6 +39,13 @@ Fixes from the first issue report (enrique363/voldorium#1).
   short again, but no longer garbled). Online matches always load at the original speed, so both
   players stay in step.
 
+- **High resolution hit level labels in Practice**: the HIGH / MID / S-MID / LOW and "!" labels
+  shown at a hit were 64 x 64 pixel pictures drawn several times larger (blocky, and no
+  smoothing could add the detail). They are redrawn at 4 times the size in the same style
+  (`tools/hitlabels.py`), in every colour the game uses (the art follows the game's palette),
+  with the same proportions as the originals. New: replacement art for any texture
+  (`textures` folder, `port/m1/tex.c`).
+
 ### Changed
 - **The memory card save screen** ("Saving SOULCALIBUR game data...", on the way back to the
   main menu) takes 0.3 s instead of 2.5 s: it runs 8 times as fast, showing every eighth

@@ -10,7 +10,9 @@ together with a small native runtime that stands in for the Dreamcast hardware. 
 - any resolution, full screen at the desktop's native resolution, multisample anti-aliasing
 - **Online Versus** in the game's own main menu: a worldwide lobby with matchmaking, ping,
   accept/decline, NAT hole punching with a relay fallback, and GGPO rollback netcode
-- a built-in virtual memory card, an in-game GRAPHICS menu, optional 16:9 replacement artwork
+- a built-in virtual memory card, an in-game GRAPHICS menu, optional 16:9 replacement artwork,
+  and new high resolution art for the hit level labels in Practice (`port/m1/textures`, drawn by
+  `tools/hitlabels.py`)
 
 What changed in each version: [CHANGELOG.md](CHANGELOG.md).
 
