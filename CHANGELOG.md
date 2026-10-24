@@ -2,6 +2,13 @@
 
 All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); see the README.
 
+## 1.0.9 (2026-10-24)
+
+### Fixed
+- **GRAPHICS > LOADING sent the game into character select** and it could not be left
+  (enrique363/voldorium#2): the menu did not recognise its new line and passed the choice on to
+  the game's own menu. Selecting it now switches between ORIGINAL and FAST as intended.
+
 ## 1.0.8 (2026-10-24)
 
 Fixes from the first issue reports (enrique363/voldorium#1, enrique363/voldorium#2) and more.
@@ -41,7 +48,6 @@ Fixes from the first issue reports (enrique363/voldorium#1, enrique363/voldorium
   `voldorium.ini`): FAST makes every disc read instant, as in 1.0.7 (the VS screen is then cut
   short again, but no longer garbled). Online matches always load at the original speed, so both
   players stay in step.
-
 - **High resolution hit level labels in Practice**: the HIGH / MID / S-MID / LOW and "!" labels
   shown at a hit were 64 x 64 pixel pictures drawn several times larger (blocky, and no
   smoothing could add the detail). They are redrawn at 4 times the size in the same style

@@ -1114,7 +1114,7 @@ void online_menu(SH4 *c, void (*f)(SH4 *))
 		c->r[0] = 0x12;
 		lobby_choose((int)v);
 	}
-	else if (slot_kind == SLOT_GRAPHICS && v >= V_G_DISPLAY && v <= V_G_VSYNC)
+	else if (slot_kind == SLOT_GRAPHICS && v >= V_G_DISPLAY && v <= V_G_LOADING)
 	{
 		put32(cur + 0x28, 0);
 		c->r[0] = 0x12;
