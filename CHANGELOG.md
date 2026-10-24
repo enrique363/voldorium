@@ -2,9 +2,9 @@
 
 All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); see the README.
 
-## Unreleased
+## 1.0.8 (2026-10-24)
 
-Fixes from the first issue report (enrique363/voldorium#1).
+Fixes from the first issue reports (enrique363/voldorium#1, enrique363/voldorium#2) and more.
 
 ### Fixed
 - **Practice: FREESTYLE SETTINGS > GUARD IMPACT stopped the game** ("call/jump to 8c032a36: no
@@ -32,6 +32,9 @@ Fixes from the first issue report (enrique363/voldorium#1).
   outside fights now take the Dreamcast drive's time (as in Flycast), so the VS screen lasts as
   long as on the console, and its last whole picture stays on screen while the fight loads.
   Fights keep instant reads (online play is not affected).
+- **The intro ran too fast**: it streams from the disc, so with instant reads it outran the
+  original. With the drive's timing it now lasts as long as in Flycast (9031 frames against
+  about 9040).
 
 ### Added
 - **Fast loading** (GRAPHICS menu: LOADING ORIGINAL / FAST; `[game] loading` in
