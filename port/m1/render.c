@@ -2156,25 +2156,41 @@ static void render_frame_draw(TaCtx *c)
 	glClearDepth(1.0);
 	glDepthMask(GL_TRUE);
 	glStencilMask(0xff);
-	/* VS screen -> fight (game modes 17, then 0): once the stage's textures are copied into video
-	   memory (a megabyte or more at once), the VS screen's last few frames would draw its pictures
-	   from the stage's textures. The last whole picture is shown again instead, until the fight
-	   starts. Pages of video memory written since the previous frame, from their generations */
+	/* VS screen -> fight (game modes 16 and 17, then 0): once the stage's textures are copied into
+	   video memory, the VS screen's last few frames would draw its pictures from the stage's
+	   textures. The last whole picture is shown again instead, until the fight starts. The VS
+	   screen's pictures: the pages of video memory written as it opens (mode 16 and its first
+	   frame in mode 17); a later bulk write over them (or a megabyte or more anywhere: the stage
+	   before Inferno's is small) starts the hold. Pages written since the previous frame, from
+	   their generations */
 	static int hold;
 	{
-		static u32 gens[VRAM_SIZE >> 12];
-		u32 changed = 0;
+		static u32 gens[VRAM_SIZE >> 12], last_mode;
+		static u8 vs_page[VRAM_SIZE >> 12];
+		const u32 mode = rd32(0x8c24a584);
+		const int opening = mode == 16 || (mode == 17 && last_mode != 17);
+		if (mode == 16 && last_mode != 16)
+			memset(vs_page, 0, sizeof(vs_page));
+		u32 changed = 0, over = 0;
 		for (u32 pg = 0; pg < (VRAM_SIZE >> 12); pg++)
 		{
 			const u32 g = hw_vram_gen(pg);
-			changed += g != gens[pg];
+			if (g != gens[pg])
+			{
+				changed++;
+				over += vs_page[pg];
+				if (opening)
+					vs_page[pg] = 1;
+			}
 			gens[pg] = g;
 		}
-		const u32 mode = rd32(0x8c24a584);
 		if (mode != 17 && mode != 0)
 			hold = 0;
-		else if (changed >= 256)
+		else if (!opening && (changed >= 256 || over >= 16))
 			hold = 1;
+		if (getenv("M1_MODELOG") && (mode == 16 || mode == 17 || mode == 0) && changed)
+			printf("modelog render %llu: mode %u pages %u over %u hold %d\n", (unsigned long long)rendered, mode, changed, over, hold);
+		last_mode = mode;
 	}
 	if (!hold)
 	{

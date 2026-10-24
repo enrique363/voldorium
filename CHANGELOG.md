@@ -2,6 +2,14 @@
 
 All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); see the README.
 
+## 1.0.10 (2026-10-24)
+
+### Fixed
+- **Arcade: the VS screen before Inferno was garbled for a moment** (enrique363/voldorium#2).
+  The VS screen's last picture is held while the next stage loads, but the hold only started
+  after a megabyte or more of textures at once, and the stage before Inferno is smaller. It now
+  starts as soon as the stage's textures overwrite the VS screen's own.
+
 ## 1.0.9 (2026-10-24)
 
 ### Fixed
