@@ -1419,7 +1419,7 @@ static void tiled_layer(const TaCtx *c)
 	tiled_period = best < 1e30f ? best : 0;
 }
 
-static int bg_tiled_picture;	/* the background is a tiled picture of the screen (bg_mask) */
+static int bg_tiled_picture;	/* the background is the mission battle map (bg_mask) */
 
 /* marks the polygons of the frame's 4:3 background layer; returns how many */
 static u32 bg_mask(const TaCtx *c, u8 *mask)
@@ -1468,10 +1468,12 @@ static u32 bg_mask(const TaCtx *c, u8 *mask)
 	   otherwise make the whole layer switch between background and not as it scrolls */
 	tiled_layer(c);
 	const int wallpaper = tx0 < -32 || tx1 > 672 || tiled_period > 0;
-	/* a tiled picture of exactly the screen (the mission battle map, scrolled through its texture)
-	   is the background by itself: other pieces at the edges (the map's flying comet) would move
-	   the depth limit, and the map's markers with it, between frames */
-	bg_tiled_picture = !wallpaper && tx0 <= 1 && tx1 >= 639;
+	/* the mission battle map (game modes 62/63, a tiled picture of exactly the screen, scrolled
+	   through its texture) is the background by itself: other pieces at the edges (the map's
+	   flying comet) would move the depth limit, and the map's markers with it, between frames.
+	   Other menus and loading screens are tiled pictures of the screen too, with nothing placed
+	   on them: they keep the usual rule (and the stretch) */
+	bg_tiled_picture = (mode == 62 || mode == 63) && !wallpaper && tx0 <= 1 && tx1 >= 639;
 	for (u32 i = 0; i < c->np; i++)
 		if (pz[i] >= 0 && (px0[i] <= 1 || px1[i] >= 639) && !(wallpaper && c->p[i].cls == M1_2D_TILED) &&
 			(!bg_tiled_picture || c->p[i].cls == M1_2D_TILED))
