@@ -142,6 +142,17 @@ def main():
             t = int(line.split("#")[0].strip() or "0", 16)
             if t and t not in entries:
                 extra.add(t)
+    # the added entries' own calls need entries too (0x8C032A36, called only from 0x8C032C60, an
+    # extra entry: the training menu's FREESTYLE SETTINGS stopped there), until nothing new turns up
+    sh4c.ENTRIES.update(extra)
+    work = sorted(extra)
+    while work:
+        t = work.pop()
+        for c in walk(t, [])[2]:
+            if c not in entries and c not in extra and sh4c.ro(c):
+                extra.add(c)
+                sh4c.ENTRIES.add(c)
+                work.append(c)
     for t in sorted(extra):
         bodies.append((f"{t:08x}", "secondary entry (call target inside a function)", sh4c.translate(t, [])))
     # dispatcher: address -> translated function

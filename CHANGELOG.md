@@ -2,6 +2,23 @@
 
 All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); see the README.
 
+## Unreleased
+
+Fixes from the first issue report (enrique363/voldorium#1).
+
+### Fixed
+- **Practice: FREESTYLE SETTINGS > GUARD IMPACT stopped the game** ("call/jump to 8c032a36: no
+  translated function"). The translator now also follows the calls made by functions found
+  through pointer tables, which brought in the one function that was missing.
+- **Practice menus in 16:9**: the pause menu, the command list and the attack data panel were
+  pulled apart (some lines at the left, some in the middle, some at the right). In fights, a
+  window's pieces now move together with the window.
+- **Character select: black lines sweeping across the screen** on some graphics cards. The light
+  streaks behind the portraits have points far behind the camera; triangles with such points
+  are now left out, as the Dreamcast does. (Graphics cards that already hid them look the same.)
+- **Options menu: the scrolling logos flickered** at the sides and were cut in half: they now
+  repeat across the whole 16:9 picture.
+
 ## 1.0.7 (2026-10-21)
 
 ### Fixed

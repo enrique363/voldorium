@@ -694,6 +694,37 @@ static const GLenum blend_dst[8] = { GL_ZERO, GL_ONE, GL_SRC_COLOR, GL_ONE_MINUS
 /* PowerVR compares 1/w (greater = nearer); GL depth here grows with distance */
 static const GLenum depth_func[8] = { GL_NEVER, GL_GREATER, GL_EQUAL, GL_GEQUAL, GL_LESS, GL_NOTEQUAL, GL_LEQUAL, GL_ALWAYS };
 
+/* a vertex the PowerVR cannot set a triangle up from: not finite, or the game's "behind the
+   camera" value 1e30 (the character select's light streaks have both). Such triangles reach
+   far off screen, and how the GPU clips them depends on its precision: some drew them as black
+   streaks across the picture. The PowerVR draws nothing for them */
+static int vert_bad(const TaVert *t)
+{
+	return !(fabsf(t->x) < 1e20f && fabsf(t->y) < 1e20f && fabsf(t->z) < 1e20f);
+}
+
+/* a polygon's strip, without the triangles that have a bad vertex */
+static void draw_strip(const TaCtx *c, const TaPoly *p)
+{
+	int bad = 0;
+	for (u32 k = 0; k < p->count && !bad; k++)
+		bad = vert_bad(&c->v[p->first + k]);
+	if (!bad)
+	{
+		glDrawArrays(GL_TRIANGLE_STRIP, (GLint)p->first, (GLsizei)p->count);
+		return;
+	}
+	for (u32 k = 0; k + 2 < p->count; k++)
+	{
+		const TaVert *t = &c->v[p->first + k];
+		if (vert_bad(t) || vert_bad(t + 1) || vert_bad(t + 2))
+			continue;
+		glFrontFace(k & 1 ? GL_CW : GL_CCW);	/* every other triangle of a strip is wound the other way */
+		glDrawArrays(GL_TRIANGLE_STRIP, (GLint)(p->first + k), 3);
+	}
+	glFrontFace(GL_CCW);
+}
+
 static void set_state(const TaPoly *p, int list)
 {
 	const u32 isp = p->isp, tsp = p->tsp;
@@ -803,10 +834,12 @@ static void screenshot(u64 n, int w, int h)
  * (Hor+). Flat (constant-depth) polygons drawn by known 2D code are compressed by 0.75 about
  * an anchor: in a fight the HUD and battle text by their position (centre x below 280 -> 0,
  * above 360 -> 640, else centre 320; text by the extent of its whole run of glyphs, so one string
- * is never split between anchors); on all other screens about the centre (pillarbox). Untextured
- * full-width fills stretch. Tiled layers (the menu wallpaper of menu_bg_scroll_draw, which
- * wraps every 1024 virtual pixels) are compressed like other 2D and drawn twice more, one wrap
- * period to either side, so they fill the width without distortion. */
+ * is never split between anchors; pieces inside a window, such as the practice menus, take the
+ * window's anchor); on all other screens about the centre (pillarbox). Untextured full-width
+ * fills stretch. Tiled layers (menu_bg_scroll_draw: the menu wallpaper, which wraps every 1024
+ * virtual pixels, and the options menu's logos, which repeat every 256) are compressed like
+ * other 2D and repeated one or more periods to either side, so they fill the width without
+ * distortion. */
 /* text runs of the frame being drawn: consecutive 2D primitives of one group on one line with
    no gap wider than a few characters (one call can draw a whole HUD line, e.g. "STAGE 1",
    the elapsed time and "INSERT COIN") */
@@ -856,18 +889,88 @@ static void text_runs(const TaCtx *c)
 	}
 }
 
+/* fight overlays: flat polygons at a 2D depth. 2D is drawn at 1/w in the thousands (the HUD,
+   menus, the practice panels); flat 3D sprites (particles) stay below 1. Some overlay pieces come
+   from code that is not a known 2D function (class 0: the practice pause menu's window, the
+   corners of the attack data panel), so the depth says what is 2D */
+#define OVERLAY_Z 100.0f
+static int is_overlay(float z0, float z1)
+{
+	return z1 - z0 <= 1e-6f * (z1 > 1 ? z1 : 1) && z0 >= OVERLAY_Z;
+}
+
+/* fight windows (the practice pause menu, command list, attack data): overlay panels at least
+   96x40 and not full width. Everything drawn over one takes that panel's anchor, so a window is
+   placed as a whole instead of its pieces going to different anchors */
+static u32 npanels, panel_cap;
+static float (*panel)[4];	/* x0 x1 y0 y1 */
+
+static void fight_panels(const TaCtx *c)
+{
+	npanels = 0;
+	if (tgt_w != 640 || rd32(0x8c24a584) != 1)
+		return;
+	for (u32 i = 0; i < c->np; i++)
+	{
+		const TaPoly *p = &c->p[i];
+		if (p->count == 0)
+			continue;
+		float x0 = 1e30f, x1 = -1e30f, y0 = 1e30f, y1 = -1e30f, z0 = 1e30f, z1 = -1e30f;
+		for (u32 k = 0; k < p->count; k++)
+		{
+			const TaVert *t = &c->v[p->first + k];
+			x0 = t->x < x0 ? t->x : x0;
+			x1 = t->x > x1 ? t->x : x1;
+			y0 = t->y < y0 ? t->y : y0;
+			y1 = t->y > y1 ? t->y : y1;
+			z0 = t->z < z0 ? t->z : z0;
+			z1 = t->z > z1 ? t->z : z1;
+		}
+		if (!is_overlay(z0, z1) || x1 - x0 < 96 || y1 - y0 < 40 || (x0 <= 1 && x1 >= 639))
+			continue;
+		if (npanels == panel_cap)
+		{
+			panel_cap = panel_cap ? panel_cap * 2 : 16;
+			panel = realloc(panel, panel_cap * sizeof(*panel));
+		}
+		panel[npanels][0] = x0, panel[npanels][1] = x1, panel[npanels][2] = y0, panel[npanels][3] = y1;
+		npanels++;
+	}
+}
+
+/* the anchor of the largest panel around (x, y) (a margin takes in the panels' corner pieces),
+   or -1 */
+static float panel_anchor(float x, float y)
+{
+	float best = 0, a = -1;
+	for (u32 i = 0; i < npanels; i++)
+	{
+		const float *r = panel[i];
+		if (x < r[0] - 12 || x > r[1] + 12 || y < r[2] - 12 || y > r[3] + 12)
+			continue;
+		const float area = (r[1] - r[0]) * (r[3] - r[2]);
+		if (area > best)
+		{
+			const float cx = (r[0] + r[1]) / 2;
+			best = area, a = cx < 280 ? 0 : cx > 360 ? 640 : 320;
+		}
+	}
+	return a;
+}
+
 static void wide_map(const TaCtx *c, const TaPoly *p, float *xa, float *xk, float *ua, float *uk)
 {
 	*xa = 0, *xk = 1, *ua = 0, *uk = 1;
 	if (tgt_w != 640)
 		return;	/* render targets: no mapping */
-	float x0 = 1e30f, x1 = -1e30f, z0 = 1e30f, z1 = -1e30f, us = 0;
+	float x0 = 1e30f, x1 = -1e30f, y0 = 1e30f, y1 = -1e30f, z0 = 1e30f, z1 = -1e30f, us = 0;
 	for (u32 k = 0; k < p->count; k++)
 	{
 		const TaVert *t = &c->v[p->first + k];
 		x0 = t->x < x0 ? t->x : x0;
 		x1 = t->x > x1 ? t->x : x1;
-
+		y0 = t->y < y0 ? t->y : y0;
+		y1 = t->y > y1 ? t->y : y1;
 		z0 = t->z < z0 ? t->z : z0;
 		z1 = t->z > z1 ? t->z : z1;
 		us += t->u;
@@ -890,7 +993,7 @@ static void wide_map(const TaCtx *c, const TaPoly *p, float *xa, float *xk, floa
 		*xk = 0.75f;
 		return;
 	}
-	if (p->cls == 0 && battle)
+	if (p->cls == 0 && battle && !is_overlay(z0, z1))
 		return;	/* 3D sprites (particles, effects) */
 	if (p->cls == 0 && z1 < 0.01f && x0 <= 1 && x1 >= 639)
 		return;	/* far full-width backdrops of 3D scenes (the intro's skies, 1/w about 0.001)
@@ -907,18 +1010,39 @@ static void wide_map(const TaCtx *c, const TaPoly *p, float *xa, float *xk, floa
 		if (p->cls == M1_2D_PRIM && i < run_cap && run_of[i] != ~0u)
 			cx = (run_x0[run_of[i]] + run_x1[run_of[i]]) / 2;
 		*xa = cx < 280 ? 0 : cx > 360 ? 640 : 320;
+		const float pa = panel_anchor(cx, (y0 + y1) / 2);
+		if (pa >= 0)
+			*xa = pa;	/* part of a window: the window's anchor */
 	}
 }
 
-/* M1_DUMPLIST=n: print render n's polygons (list, ISP, TSP, TCW, first vertex) */
+/* M1_DUMPLIST=n: print render n's polygons (list, ISP, TSP, TCW, first vertex) to list_dump.txt;
+   M1_DUMPLIST=n,n,...: several renders, list_dump_<n>.txt */
 static void dump_list(TaCtx *c)
 {
-	static long want = -2;
-	if (want == -2)
-		want = getenv("M1_DUMPLIST") ? atol(getenv("M1_DUMPLIST")) : -1;
-	if ((long)rendered != want || !c)
+	static long want[16];
+	static int nwant = -1, several;
+	if (nwant < 0)
+	{
+		nwant = 0;
+		const char *s = getenv("M1_DUMPLIST");
+		several = s && strchr(s, ',');
+		while (s && *s && nwant < 16)
+		{
+			want[nwant++] = atol(s);
+			s = strchr(s, ',');
+			s = s ? s + 1 : 0;
+		}
+	}
+	int hit = 0;
+	for (int k = 0; k < nwant; k++)
+		hit |= (long)rendered == want[k];
+	if (!hit || !c)
 		return;
-	FILE *f = fopen("list_dump.txt", "w");
+	char name[64] = "list_dump.txt";
+	if (several)
+		snprintf(name, sizeof(name), "list_dump_%lu.txt", (unsigned long)rendered);
+	FILE *f = fopen(name, "w");
 	for (u32 i = 0; i < c->np; i++)
 	{
 		const TaPoly *p = &c->p[i];
@@ -1221,6 +1345,77 @@ static void blur_init(void)
 	glBindFramebuffer(GL_FRAMEBUFFER, frame_fbo);
 }
 
+/* tiled layers (menu_bg_scroll_draw): the wallpaper spans -192..832 and repeats every 1024. Others
+   cover just the 4:3 screen, like the options menu's grid of logos (-29..611, two 64-wide halves
+   per logo, repeating every 256): their period is the smallest x step between two tiles with the
+   same texture on the same row. tiled_x0/x1: the layer's extent; tiled_row: each row's own (the
+   rows are staggered, so where one ends another may not). Cached per render */
+static float tiled_period, tiled_x0, tiled_x1;
+static struct { float y0, x0, x1; } tiled_row[64];
+static u32 tiled_rows;
+
+static int tiled_row_of(float y0)
+{
+	for (u32 r = 0; r < tiled_rows; r++)
+		if (fabsf(tiled_row[r].y0 - y0) < 0.5f)
+			return (int)r;
+	return -1;
+}
+
+static void tiled_layer(const TaCtx *c)
+{
+	static u64 done = ~0ull;
+	if (done == rendered)
+		return;
+	done = rendered;
+	tiled_period = 0, tiled_x0 = 1e30f, tiled_x1 = -1e30f, tiled_rows = 0;
+	static struct { float x0, y0; u32 tcw; } *t;
+	static u32 cap;
+	u32 n = 0;
+	for (u32 i = 0; i < c->np; i++)
+	{
+		const TaPoly *p = &c->p[i];
+		if (p->cls != M1_2D_TILED || p->count == 0)
+			continue;
+		float x0 = 1e30f, x1 = -1e30f, y0 = 1e30f;
+		for (u32 k = 0; k < p->count; k++)
+		{
+			const TaVert *v = &c->v[p->first + k];
+			x0 = fminf(x0, v->x), x1 = fmaxf(x1, v->x), y0 = fminf(y0, v->y);
+		}
+		if (!isfinite(x0) || !isfinite(x1))
+			continue;
+		tiled_x0 = fminf(tiled_x0, x0), tiled_x1 = fmaxf(tiled_x1, x1);
+		int r = tiled_row_of(y0);
+		if (r < 0 && tiled_rows < 64)
+		{
+			r = (int)tiled_rows++;
+			tiled_row[r].y0 = y0, tiled_row[r].x0 = x0, tiled_row[r].x1 = x1;
+		}
+		if (r >= 0)
+			tiled_row[r].x0 = fminf(tiled_row[r].x0, x0), tiled_row[r].x1 = fmaxf(tiled_row[r].x1, x1);
+		if (n == cap)
+			t = realloc(t, (cap = cap ? cap * 2 : 256) * sizeof(*t));
+		t[n].x0 = x0, t[n].y0 = y0, t[n].tcw = p->tcw, n++;
+	}
+	if (!n)
+		return;
+	if (tiled_x1 - tiled_x0 >= 1000)
+	{
+		tiled_period = 1024;	/* the wallpaper */
+		return;
+	}
+	float best = 1e30f;
+	for (u32 i = 0; i < n; i++)
+		for (u32 j = i + 1; j < n; j++)
+		{
+			const float d = fabsf(t[i].x0 - t[j].x0);
+			if (t[i].tcw == t[j].tcw && fabsf(t[i].y0 - t[j].y0) < 0.5f && d > 8 && d < best)
+				best = d;
+		}
+	tiled_period = best < 1e30f ? best : 0;
+}
+
 /* marks the polygons of the frame's 4:3 background layer; returns how many */
 static u32 bg_mask(const TaCtx *c, u8 *mask)
 {
@@ -1259,7 +1454,10 @@ static u32 bg_mask(const TaCtx *c, u8 *mask)
 		if (p->cls == M1_2D_TILED)
 			tx0 = fminf(tx0, x0), tx1 = fmaxf(tx1, x1);
 	}
-	const int wallpaper = tx0 < -32 || tx1 > 672;
+	/* a repeating tiled layer is no part of a 4:3 picture: its pieces at the screen edges would
+	   otherwise make the whole layer switch between background and not as it scrolls */
+	tiled_layer(c);
+	const int wallpaper = tx0 < -32 || tx1 > 672 || tiled_period > 0;
 	for (u32 i = 0; i < c->np; i++)
 		if (pz[i] >= 0 && (px0[i] <= 1 || px1[i] >= 639) && !(wallpaper && c->p[i].cls == M1_2D_TILED))
 			zmax = fmaxf(zmax, pz[i]);
@@ -1372,7 +1570,7 @@ static int side_fill(TaCtx *c, const u32 *order, u32 n)
 			set_state(p, p->list);
 			glDisable(GL_DEPTH_TEST);
 			glDisable(GL_STENCIL_TEST);
-			glDrawArrays(GL_TRIANGLE_STRIP, (GLint)p->first, (GLsizei)p->count);
+			draw_strip(c, p);
 		}
 	glUniform2f(u_ymap, 0, 1);
 	glDisable(GL_BLEND);
@@ -1413,6 +1611,8 @@ static void draw_lists(TaCtx *c)
 	glBufferSubData(GL_ARRAY_BUFFER, 0, (GLsizeiptr)(c->nv * sizeof(TaVert)), c->v);
 	upload_volumes(c);
 	text_runs(c);
+	fight_panels(c);
+	tiled_layer(c);
 	/* drawing order: opaque, punch-through, then translucent. Unless ISP_FEED_CFG bit 0
 	   (presort) is set, the PowerVR sorts translucent polygons by depth itself: here per strip,
 	   back to front by the strip's mean 1/w (smaller = farther) */
@@ -1509,13 +1709,28 @@ static void draw_lists(TaCtx *c)
 			else
 				glDisable(GL_SCISSOR_TEST);
 			glUniform1f(u_xoff, 0);
-			glDrawArrays(GL_TRIANGLE_STRIP, (GLint)p->first, (GLsizei)p->count);
-			if (p->cls == M1_2D_TILED && xk != 1 && !(replaced == 2 && bg_layer[idx[j]]))
-				for (int side = -1; side <= 1; side += 2)
+			draw_strip(c, p);
+			if (p->cls == M1_2D_TILED && xk != 1 && tiled_period > 0 && !(replaced == 2 && bg_layer[idx[j]]))
+			{
+				/* copies one period or more to either side fill 16:9 (virtual x -249..889); a 4:3
+				   layer's copies only where the layer itself draws nothing, so nothing is drawn twice */
+				float x0 = 1e30f, x1 = -1e30f, y0 = 1e30f;
+				for (u32 k = 0; k < p->count; k++)
 				{
-					glUniform1f(u_xoff, side * 1024 * xk);
-					glDrawArrays(GL_TRIANGLE_STRIP, (GLint)p->first, (GLsizei)p->count);
+					const TaVert *v = &c->v[p->first + k];
+					x0 = fminf(x0, v->x), x1 = fmaxf(x1, v->x), y0 = fminf(y0, v->y);
 				}
+				const int r = tiled_row_of(y0);
+				const float rx0 = r >= 0 ? tiled_row[r].x0 : tiled_x0, rx1 = r >= 0 ? tiled_row[r].x1 : tiled_x1;
+				for (int m = -4; m <= 4; m++)
+				{
+					const float d = m * tiled_period;
+					if (m == 0 || x1 + d < -250 || x0 + d > 890 || (x1 + d > rx0 + 1 && x0 + d < rx1 - 1))
+						continue;
+					glUniform1f(u_xoff, d * xk);
+					draw_strip(c, p);
+				}
+			}
 		}
 	if (!shaded)
 		shadow_pass(c);

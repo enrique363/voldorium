@@ -57,7 +57,7 @@ static u32 button_bit(char ch)
 	}
 }
 
-static struct { u32 frame, buttons; } script[256];
+static struct { u32 frame, buttons; } script[1024];
 static int nscript;
 static u64 conditions, dmas;
 
@@ -68,7 +68,7 @@ static void load_script(void)
 		return;
 	done = 1;
 	const char *s = getenv("M1_PADS");
-	while (s && *s && nscript < 256)
+	while (s && *s && nscript < 1024)
 	{
 		char *end;
 		u32 frame = strtoul(s, &end, 10);
