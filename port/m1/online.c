@@ -1,7 +1,7 @@
 /* Online Versus and Graphics from the game's own main menu (Windows).
  *
  * GRAPHICS (after OPTIONS) opens a submenu the same way: display (full screen or a window),
- * resolution and anti-aliasing; selecting a line cycles its value, applied at once and saved
+ * resolution, anti-aliasing, VSync and loading speed (hle.c); selecting a line cycles its value, applied at once and saved
  * (render.c video_*). The main menu's entries are rebuilt in scratch RAM (13 instead of 12);
  * ONLINE VERSUS and GRAPHICS share the INTERNET entry's id (help line switched by the cursor).
  *
@@ -58,7 +58,7 @@ void online_menu(SH4 *c, void (*f)(SH4 *));
 #define POOL_N 6
 #define ID_BACK 21			/* TO MAIN MENU */
 /* values of the lobby's action entries (the game's own go up to 0x13) */
-enum { V_PEER = 0x40, V_CANCEL = 0x48, V_ACCEPT, V_DECLINE, V_STATUS, V_G_DISPLAY = 0x50, V_G_RES, V_G_AA, V_G_VSYNC };	/* V_STATUS: a status line (selecting it does nothing; a disabled line would show "Not available in this version.") */
+enum { V_PEER = 0x40, V_CANCEL = 0x48, V_ACCEPT, V_DECLINE, V_STATUS, V_G_DISPLAY = 0x50, V_G_RES, V_G_AA, V_G_VSYNC, V_G_LOADING };	/* V_STATUS: a status line (selecting it does nothing; a disabled line would show "Not available in this version.") */
 
 static void put32(u32 a, u32 v) { memcpy(&sh4_ram[a & 0xffffff], &v, 4); }
 static void put16(u32 a, u16 v) { memcpy(&sh4_ram[a & 0xffffff], &v, 2); }
@@ -884,6 +884,8 @@ void video_next_resolution(void);
 void video_next_msaa(void);
 int video_vsync(void);
 void video_next_vsync(void);
+int loading_fast(void);
+void loading_next(void);
 
 static void build_graphics(u32 cur)
 {
@@ -896,6 +898,7 @@ static void build_graphics(u32 cur)
 	snprintf(l, sizeof(l), "ANTI-ALIASING %s", aa == 2 ? "2X" : aa == 4 ? "4X" : aa == 8 ? "8X" : "OFF");
 	line(l, "Smooths jagged edges. Select to change it.", V_G_AA, 1);
 	line(video_vsync() ? "VSYNC ON" : "VSYNC OFF", "On: no tearing. Off: lowest input delay.", V_G_VSYNC, 1);
+	line(loading_fast() ? "LOADING FAST" : "LOADING ORIGINAL", "Original: Dreamcast disc speed. Fast: instant.", V_G_LOADING, 1);
 	line("TO MAIN MENU", "", 0, 2);
 	for (int k = nlines; k < POOL_N; k++)
 		put16(AVAIL + (u32)(ID_POOL + k) * 4, 0);
@@ -914,6 +917,8 @@ static void graphics_choose(int v)
 		video_next_msaa();
 	else if (v == V_G_VSYNC)
 		video_next_vsync();
+	else if (v == V_G_LOADING)
+		loading_next();
 }
 
 static void lobby_choose(int v)

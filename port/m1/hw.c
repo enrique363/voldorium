@@ -330,7 +330,24 @@ static void vblank_in(void)
 	}
 	void video_record_vblank(void);
 	video_record_vblank();	/* M1_RECORD (render.c): one video frame per V Blank */
-	pace_frame();
+	extern int m1_resim, m1_net_active;
+	{
+		/* The memory card save screen (game mode 53, on the way back to the main menu) runs 8
+		   times as fast: 7 frames in 8 are neither shown, paced nor heard (as a GGPO
+		   re-simulation). It held 2.5 s on screen: one 128-byte write to the card per frame,
+		   then a wait. The game runs exactly the same frames. Not in online matches (netplay.c
+		   owns m1_resim there) or with M1_SAVEFAST=0. */
+		static int on = -1;
+		static u32 n;
+		if (on < 0)
+			on = !getenv("M1_NET") && !(getenv("M1_SAVEFAST") && !atoi(getenv("M1_SAVEFAST")));
+		if (on && m == 53 && !m1_net_active)
+			m1_resim = (++n & 7) != 0;
+		else if (n)
+			m1_resim = 0, n = 0;
+	}
+	if (!m1_resim)
+		pace_frame();
 }
 
 static void hw_tick_step(u32 n);

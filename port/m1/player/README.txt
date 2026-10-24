@@ -17,8 +17,10 @@ buttons for L / R); a second controller is player 2, for VS BATTLE. In the galle
 viewer L / R change pictures (the D-pad moves the picture).
 The game starts full screen at your monitor's resolution. GRAPHICS in the main menu (under
 OPTIONS) switches between full screen and a window, sets the resolution the game is drawn at
-(native or a 16:9 size up to your monitor's), anti-aliasing (off, 2x, 4x, 8x) and VSync (see
-below); changes apply at once and are saved in voldorium.ini. Alt+Enter or F11: full screen on/off. Esc: quit (during an online match: leave it and go back to the main menu; if a match is cut off, both players return there).
+(native or a 16:9 size up to your monitor's), anti-aliasing (off, 2x, 4x, 8x), VSync (see
+below) and loading (ORIGINAL: the disc loads as fast as the Dreamcast's drive, as on the
+console; FAST: instantly, so the VS screen before a fight is cut short; online matches always
+load at the original speed); changes apply at once and are saved in voldorium.ini. Alt+Enter or F11: full screen on/off. Esc: quit (during an online match: leave it and go back to the main menu; if a match is cut off, both players return there).
 
 VSync
 -----

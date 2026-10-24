@@ -91,6 +91,29 @@ static const char *gd_cmd_name(u32 cc)
 	}
 }
 
+void config_set(const char *section, const char *key, const char *value);
+void config_save(void);
+
+/* fast loading: M1_GDINSTANT (from [game] loading in voldorium.ini), switched in the GRAPHICS menu */
+static int fast_loading = -1;
+int loading_fast(void)
+{
+	if (fast_loading < 0)
+		fast_loading = getenv("M1_GDINSTANT") && atoi(getenv("M1_GDINSTANT"));
+	return fast_loading;
+}
+void loading_next(void)
+{
+	fast_loading = !loading_fast();
+	config_set("game", "loading", fast_loading ? "fast" : "original");
+	config_save();
+#ifdef _WIN32
+	_putenv_s("M1_GDINSTANT", fast_loading ? "1" : "0");	/* a restart into an online match inherits it */
+#else
+	setenv("M1_GDINSTANT", fast_loading ? "1" : "0", 1);
+#endif
+}
+
 static void gd_execute(void)
 {
 	const u32 *p = gd.params;
@@ -105,12 +128,11 @@ static void gd_execute(void)
 		   replaced its pictures while it was still shown (garbage frames) and its side pan never
 		   played. Fights keep instant reads: the game streams from the disc during them, and
 		   rollback (netplay) does not rewind the drive. PIO reads are instant there too.
-		   M1_GDINSTANT=1: instant reads everywhere. */
-		static int instant = -1;
+		   Fast loading ([game] loading = fast, M1_GDINSTANT=1, GRAPHICS menu): instant reads
+		   everywhere, except in online matches, where both sides must take the same time. */
 		static u64 ready;
-		if (instant < 0)
-			instant = getenv("M1_GDINSTANT") && atoi(getenv("M1_GDINSTANT"));
-		if (gd.cmd == 0x11 && !instant && rd32(0x8c24a584) != 1)
+		extern int m1_net_active;
+		if (gd.cmd == 0x11 && (!loading_fast() || m1_net_active || getenv("M1_NET")) && rd32(0x8c24a584) != 1)
 		{
 			extern u64 m1_cycles(void);
 			if (!ready)

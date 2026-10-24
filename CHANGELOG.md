@@ -33,6 +33,17 @@ Fixes from the first issue report (enrique363/voldorium#1).
   long as on the console, and its last whole picture stays on screen while the fight loads.
   Fights keep instant reads (online play is not affected).
 
+### Added
+- **Fast loading** (GRAPHICS menu: LOADING ORIGINAL / FAST; `[game] loading` in
+  `voldorium.ini`): FAST makes every disc read instant, as in 1.0.7 (the VS screen is then cut
+  short again, but no longer garbled). Online matches always load at the original speed, so both
+  players stay in step.
+
+### Changed
+- **The memory card save screen** ("Saving SOULCALIBUR game data...", on the way back to the
+  main menu) takes 0.3 s instead of 2.5 s: it runs 8 times as fast, showing every eighth
+  frame. The game saves exactly as before.
+
 ## 1.0.7 (2026-10-21)
 
 ### Fixed

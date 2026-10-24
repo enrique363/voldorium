@@ -2,6 +2,7 @@
  *
  * voldorium.ini (next to the executable) holds the player's settings:
  *   [game]  disc = path of the .gdi        font = BIOS font file (optional)
+ *           loading = original (disc reads take the Dreamcast drive's time) / fast (instant)
  *           vmu = memory card file (default vmu_a1.bin next to the executable; none in netplay)
  *   [video] fullscreen = 0/1 (player form default 1)  resolution = native or WxH (16:9; the
  *           picture is drawn at that size)  window = 1280x720 (window size when native)
@@ -196,6 +197,8 @@ static void apply_settings(void)
 	env_default("M1_RESOLUTION", config_get("video", "resolution"));
 	env_default("M1_BGMODE", config_get("video", "backgrounds"));
 	env_default("M1_ARTDUMP", config_get("debug", "artdump"));
+	if ((v = config_get("game", "loading")) && !strcmp(v, "fast"))
+		env_default("M1_GDINSTANT", "1");	/* hle.c */
 	{
 		char art[1100];	/* 16:9 replacement pictures (artswap.c) */
 		snprintf(art, sizeof(art), "%s/art16x9", exe_dir);
