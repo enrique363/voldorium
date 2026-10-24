@@ -13,11 +13,19 @@ Fixes from the first issue report (enrique363/voldorium#1).
 - **Practice menus in 16:9**: the pause menu, the command list and the attack data panel were
   pulled apart (some lines at the left, some in the middle, some at the right). In fights, a
   window's pieces now move together with the window.
-- **Character select: black lines sweeping across the screen** on some graphics cards. The light
-  streaks behind the portraits have points far behind the camera; triangles with such points
-  are now left out, as the Dreamcast does. (Graphics cards that already hid them look the same.)
+- **Character select: dark and bright lines sweeping across the animated background.** The
+  light streaks behind the portraits are 3D strips; a strip with a point behind the camera was
+  mistaken for flat 2D artwork and narrowed for 16:9 while its neighbours were not, so cracks
+  opened between them and showed what lies behind (a bright band, or black). Triangles that
+  reach behind the camera are also left out now, as the Dreamcast does: some graphics cards drew
+  them as black streaks.
 - **Options menu: the scrolling logos flickered** at the sides and were cut in half: they now
   repeat across the whole 16:9 picture.
+- **Mission Battle map: the markers flickered and jumped** between two positions (whenever the
+  flying comet reached the edge of the screen). The map is now drawn undistorted with its
+  markers, with a blurred copy of the map at the sides.
+- **Character select (Practice, VS): the two big portraits were stretched** once both players
+  had picked: they are no longer taken for a background picture.
 
 ## 1.0.7 (2026-10-21)
 

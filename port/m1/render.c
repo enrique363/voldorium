@@ -896,7 +896,7 @@ static void text_runs(const TaCtx *c)
 #define OVERLAY_Z 100.0f
 static int is_overlay(float z0, float z1)
 {
-	return z1 - z0 <= 1e-6f * (z1 > 1 ? z1 : 1) && z0 >= OVERLAY_Z;
+	return isfinite(z1) && z1 - z0 <= 1e-6f * (z1 > 1 ? z1 : 1) && z0 >= OVERLAY_Z;
 }
 
 /* fight windows (the practice pause menu, command list, attack data): overlay panels at least
@@ -975,7 +975,10 @@ static void wide_map(const TaCtx *c, const TaPoly *p, float *xa, float *xk, floa
 		z1 = t->z > z1 ? t->z : z1;
 		us += t->u;
 	}
-	const int flat = z1 - z0 <= 1e-6f * (z1 > 1 ? z1 : 1);
+	/* a vertex behind the camera can be infinite, and inf - x <= inf would pass for flat: such a
+	   3D strip was squeezed like 2D while its neighbours were not, opening lines between them
+	   (the character select's light streaks) */
+	const int flat = isfinite(z0) && isfinite(z1) && z1 - z0 <= 1e-6f * (z1 > 1 ? z1 : 1);
 	if (!flat)
 		return;	/* 3D */
 	const int battle = rd32(0x8c24a584) == 1;	/* game mode 1 = fight */
@@ -1064,11 +1067,11 @@ static void dump_list(TaCtx *c)
 				x0, x1, y0, y1, z0, z1);
 		if (p->clip)
 			fprintf(f, "      clip %u rect %u %u %u %u%c", p->clip, p->clip_rect[0], p->clip_rect[1], p->clip_rect[2], p->clip_rect[3], 10);
-		if (p->sprite)
+		if (p->sprite || getenv("M1_DUMPVERTS"))	/* M1_DUMPVERTS=1: every polygon's vertices */
 			for (u32 k = 0; k < p->count; k++)
 			{
 				const TaVert *t = &c->v[p->first + k];
-				fprintf(f, "      v%u %7.2f %7.2f z %.4g uv %.4f %.4f%c", k, t->x, t->y, t->z, t->u, t->v, 10);
+				fprintf(f, "      v%u %7.2f %7.2f z %.4g uv %.4f %.4f col %08x%c", k, t->x, t->y, t->z, t->u, t->v, t->col, 10);
 			}
 	}
 	{
@@ -1416,12 +1419,15 @@ static void tiled_layer(const TaCtx *c)
 	tiled_period = best < 1e30f ? best : 0;
 }
 
+static int bg_tiled_picture;	/* the background is a tiled picture of the screen (bg_mask) */
+
 /* marks the polygons of the frame's 4:3 background layer; returns how many */
 static u32 bg_mask(const TaCtx *c, u8 *mask)
 {
 	const u32 mode = rd32(0x8c24a584);
 	const int battle = mode == 1 || mode == 23 || mode == 45;	/* fight, demo fight, demo replay */
 	memset(mask, 0, c->np);
+	bg_tiled_picture = 0;
 	if (battle)
 		return 0;
 	float zmax = -1, tx0 = 1e30f, tx1 = -1e30f;
@@ -1450,6 +1456,10 @@ static u32 bg_mask(const TaCtx *c, u8 *mask)
 			continue;	/* 3D */
 		if (p->cls == 0 && z1 < 0.01f && x0 <= 1 && x1 >= 639)
 			continue;	/* far backdrop of a 3D scene: already 16:9 */
+		if (p->cls == M1_2D_SCREEN)
+			continue;	/* character select: its backdrop is the 3D light streaks; the two big
+						   portraits of a two-player pick reach both screen edges and would
+						   otherwise be taken for a 4:3 picture and stretched */
 		pz[i] = z1, px0[i] = x0, px1[i] = x1;
 		if (p->cls == M1_2D_TILED)
 			tx0 = fminf(tx0, x0), tx1 = fmaxf(tx1, x1);
@@ -1458,8 +1468,13 @@ static u32 bg_mask(const TaCtx *c, u8 *mask)
 	   otherwise make the whole layer switch between background and not as it scrolls */
 	tiled_layer(c);
 	const int wallpaper = tx0 < -32 || tx1 > 672 || tiled_period > 0;
+	/* a tiled picture of exactly the screen (the mission battle map, scrolled through its texture)
+	   is the background by itself: other pieces at the edges (the map's flying comet) would move
+	   the depth limit, and the map's markers with it, between frames */
+	bg_tiled_picture = !wallpaper && tx0 <= 1 && tx1 >= 639;
 	for (u32 i = 0; i < c->np; i++)
-		if (pz[i] >= 0 && (px0[i] <= 1 || px1[i] >= 639) && !(wallpaper && c->p[i].cls == M1_2D_TILED))
+		if (pz[i] >= 0 && (px0[i] <= 1 || px1[i] >= 639) && !(wallpaper && c->p[i].cls == M1_2D_TILED) &&
+			(!bg_tiled_picture || c->p[i].cls == M1_2D_TILED))
 			zmax = fmaxf(zmax, pz[i]);
 	if (zmax < 0)
 		return 0;
@@ -1507,7 +1522,9 @@ static void draw_replacement(int id, const u8 *rgba, u32 w, u32 h)
 
 /* the 16:9 sides of a 4:3 background, by M1_BGMODE ([video] backgrounds):
 	 stretch  the background layer is drawn at full width (stretched by 4/3; menus, logos and
-			  text in front stay undistorted). Returns 2: see the draw loop
+			  text in front stay undistorted). Returns 2: see the draw loop. Not for a tiled
+			  picture of the screen (the mission battle map): its markers would leave their
+			  places, so it gets the blur fill
 	 replace  its 16:9 replacement picture if there is one (returns 1: the layer's own
 			  polygons are then not drawn, see bg_layer), else the blur fill
 	 blur	 the blur fill only
@@ -1529,8 +1546,8 @@ static int side_fill(TaCtx *c, const u32 *order, u32 n)
 		bg_layer = realloc(bg_layer, cap = c->np);
 	if (!bg_mask(c, bg_layer))
 		return 0;
-	if (mode == 2)
-		return 2;
+	if (mode == 2 && !bg_tiled_picture)
+		return 2;	/* stretch; a tiled picture gets the blur fill instead: markers are placed on it */
 	if (!blur_prog)
 	{
 		blur_init();
@@ -1674,6 +1691,20 @@ static void draw_lists(TaCtx *c)
 			if (skip_list == -2)
 				skip_list = getenv("M1_SKIPLIST") ? atoi(getenv("M1_SKIPLIST")) : -1;
 			if ((int)p->list == skip_list)
+				continue;
+			static int skip_a = -2, skip_b = -1;	/* M1_SKIPPOLY=a[:b] (debugging): leave out polygons a..b */
+			if (skip_a == -2)
+			{
+				skip_a = -1;
+				if (getenv("M1_SKIPPOLY") && sscanf(getenv("M1_SKIPPOLY"), "%d:%d", &skip_a, &skip_b) == 1)
+					skip_b = skip_a;
+			}
+			if ((int)idx[j] >= skip_a && (int)idx[j] <= skip_b)
+				continue;
+			static int only = -2;	/* M1_ONLYPOLY=n (debugging): draw polygon n alone */
+			if (only == -2)
+				only = getenv("M1_ONLYPOLY") ? atoi(getenv("M1_ONLYPOLY")) : -1;
+			if (only >= 0 && (int)idx[j] != only)
 				continue;
 			set_state(p, p->list);
 			{
