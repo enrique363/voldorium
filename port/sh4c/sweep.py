@@ -162,7 +162,7 @@ def main():
         for e in all_entries:
             o.write(f"void f_{e:08x}(SH4 *c);\n")
         o.write("\n/* sorted by address, for binary search in sh4_call/sh4_jump */\n")
-        o.write("const struct sh4_fn { u32 addr; void (*fn)(SH4 *); } sh4_fns[] = {\n")
+        o.write("const struct sh4_fn sh4_fns[] = {\n")
         for e in all_entries:
             o.write(f"\t{{ 0x{e:08x}u, f_{e:08x} }},\n")
         o.write("};\nconst int sh4_nfns = sizeof(sh4_fns) / sizeof(sh4_fns[0]);\n")

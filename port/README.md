@@ -825,7 +825,7 @@ rollbacks of two copies sharing one PC with 100 ms simulated latency.
 - **Idle fix**: the main menu returns to the title after 3600 frames (60 s) without input (mode
   11 handler 0x8c033a86, counter 0x8c25dcdc); the counter is held at 0 while ONLINE VERSUS or
   GRAPHICS is open, so waiting for an opponent no longer drops you to the attract demo.
-- **Version** (1.0.1; now 1.0.10): `VOLDORIUM_VERSION` in `m1/m1.h` (and the numbers in `m1/voldorium.rc`).
+- **Version** (1.0.1; now 1.1.0): `VOLDORIUM_VERSION` in `m1/m1.h` (and the numbers in `m1/voldorium.rc`).
   Shown in the window title ("Voldorium ver. 1.0.1") and, in game mode 11 (the main menu and its
   submenus), as "ver. 1.0.1" in the lower right corner: drawn by the port over the finished frame
   in the BIOS font's 12x24 glyphs (as the help line), white with a shadow (`render.c`

@@ -31,7 +31,7 @@
 #include <ucontext.h>
 #endif
 
-void f_8c102e10(SH4 *c);
+void (*m1_translated(u32 a))(SH4 *);
 
 #define MAX_CTX 64
 #define HOST_STACK (1u << 20)
@@ -142,7 +142,7 @@ int thread_hle(SH4 *c, u32 addr)
 		return 0;	/* the save routine runs as translated code (its caller did the setjmp) */
 	const u32 buf = c->r[4];
 	struct slot *s = find(buf);
-	f_8c102e10(c);	/* loads r0-r15, PR, MAC, GBR, FPSCR, FPUL, FR; r0 = return value */
+	m1_translated(0x8c102e10u)(c);	/* loads r0-r15, PR, MAC, GBR, FPSCR, FPUL, FR; r0 = return value */
 	switches++;
 #ifdef _WIN32
 	if (s->valid)

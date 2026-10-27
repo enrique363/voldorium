@@ -21,9 +21,11 @@ What changed in each version: [CHANGELOG.md](CHANGELOG.md).
 > **This repository contains no game code, no game data and no executable.**
 > Voldorium only works with a disc dump (`.gdi`) that **you made yourself from a SoulCalibur
 > disc you own**. Nothing here can play anything without it, and none of it may be used with
-> copies you do not legally own. Do not ask for, link to or share game files or built
-> executables here: a built `Voldorium.exe` contains code translated from the game, so it is
-> as much the game's copyright as the disc and must not be distributed either.
+> copies you do not legally own. Do not ask for, link to or share game files or a built game
+> module here: `sc_game.dll` contains code translated from the game, so it is as much the
+> game's copyright as the disc and must not be distributed either. `Voldorium.exe` holds none of
+> it (the build checks): it loads `sc_game.dll`, which is built on each player's own PC from
+> their own disc.
 
 Only the USA release (T-1401N, V1.000) is supported: the translation tables are made for it, and
 `tools/extract_boot.py` checks the SHA-1 of the files it extracts.
@@ -53,11 +55,40 @@ trademark of Bandai Namco Entertainment Inc.; Dreamcast is a trademark of Sega C
 Not in the repository, by design (see `.gitignore`): `disc/` (your dump), `extracted/`, anything
 generated from them (`port/build/`), Ghidra projects, traces, and `port/art16x9/refs.txt`.
 
-## Building
+## Installing
 
 You need Windows 10 or 11, your own disc dump of SoulCalibur (USA, T-1401N, V1.000) as a
 `.gdi` file with its track files, about 1 GB of free disk space and an internet connection for
-the first build. Nothing else has to be installed.
+the first start. Nothing else has to be installed.
+
+### Download (from 1.1.0)
+
+1. From [**Releases**](https://github.com/enrique363/voldorium/releases/latest), under
+   **Assets**, download **`Voldorium-<version>-windows.zip`** (about 2 MB) and unzip it anywhere
+   you can write to (not `Program Files`).
+2. Start **`Voldorium.exe`** and choose your `.gdi` file when it asks.
+3. The first start builds the game from your disc. It first says what it downloads and asks:
+   the [llvm-mingw](https://github.com/mstorsjo/llvm-mingw) compiler (about 190 MB), two small
+   files from [Flycast](https://github.com/flyinghead/flycast) (the SH-4 sine table and its
+   replacement BIOS font) and, only if you have no Python 3.10 or newer, a portable Python
+   (about 11 MB). Each is a fixed version checked against its SHA-256, and all of it goes into
+   the `builder` folder; nothing is installed on the system. A window then shows the three
+   steps (extract the boot files from your dump, translate the game code to C, compile it into
+   `sc_game.dll`), which take from about half a minute to a few minutes. The game starts when
+   it is done; later starts go straight to the game.
+
+The download holds no game code: `Voldorium.exe` is the runtime (renderer, sound, netplay,
+lobby), and the game's code is made from your own disc on your PC. After you update to a new
+version, the first start rebuilds `sc_game.dll` the same way (the tools are already there).
+Everyone on the same version builds a byte-identical `sc_game.dll`, so Online Versus works
+between any two players of that version.
+
+To uninstall, delete the folder. Your settings and memory card are in it (`voldorium.ini`,
+`vmu_a1.bin`): keep those two files to carry them over to a new version.
+
+## Building it yourself
+
+The whole game (the executables as well as the game module) can also be built from the source.
 
 ### The easy way
 
@@ -80,13 +111,13 @@ What the builder does, so you know what runs on your PC:
 | 1. Extract | Reads the boot files from your dump into `extracted/` and checks they are the supported release. |
 | 2. Translate | Turns the game code into C (`port/build/sweep/`). |
 | 3. GGPO | Builds the rollback netcode library. |
-| 4. Compile | Builds `Voldorium.exe` (objects in `%LOCALAPPDATA%\sc-m1`). |
+| 4. Compile | Builds `Voldorium.exe` (the runtime: no game code) and the game module `sc_game.dll` (the translated game code, with Flycast's sine table); objects in `%LOCALAPPDATA%\sc-m1`. |
 | 5. Player folder | Puts the game, `SDL2.dll`, the font, `voldorium.ini` and `README.txt` in `Voldorium/`. |
 
 Run it again after updating the repository: finished steps are skipped and your settings and
 memory card in `Voldorium/` are kept. Builds are reproducible: everyone who builds the same
-version gets a byte-identical `Voldorium.exe` (pinned tools, no time stamps or folder names in
-it), which is what the online lobby needs to match players.
+version gets a byte-identical `Voldorium.exe` and `sc_game.dll` (pinned tools, no time stamps
+or folder names in them), which is what the online lobby needs to match players.
 
 ### Troubleshooting
 
@@ -111,8 +142,17 @@ to the repository, then `toolchain/`. The Git Bash scripts `port/m1/build_ggpo.s
 `build_win.sh` and `make_player.sh` run its single steps; `port/sh4c/sweep.py` is the
 translator and `port/tests/run_all.sh` the test suite.
 
-Everything you build stays on your machine. Do not upload or share the `Voldorium` folder,
-`port/build/` or the executables: they contain code translated from the game.
+The game's code and the runtime are separate: `sc_game.dll` (`port/sh4c/module.c` and the
+translated code, compiled with `-DSH4_MODULE`) reaches the runtime only through a table of
+about twenty functions and variables (`Sh4Host` in `port/sh4c/sh4rt.h`), and `Voldorium.exe`
+loads it at start (`port/m1/module.c`). `--only module --gdi ... --module-dir DIR` builds the
+module alone. `--only release --release-dir DIR` assembles a folder with the executables, no
+game module and the builder (`builder/first_run.bat` and the translator): its first start
+builds `sc_game.dll` from the player's disc, after asking. It refuses to finish if any file in
+it holds a translated function or a piece of `1ST_READ.BIN`.
+
+Everything you build stays on your machine. Do not upload or share `sc_game.dll`, a `Voldorium`
+folder that holds it, or `port/build/`: they contain code translated from the game.
 
 ## Playing
 

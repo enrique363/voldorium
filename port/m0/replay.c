@@ -19,7 +19,6 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-struct sh4_fn { u32 addr; void (*fn)(SH4 *); };
 extern const struct sh4_fn sh4_fns[];
 extern const int sh4_nfns;
 

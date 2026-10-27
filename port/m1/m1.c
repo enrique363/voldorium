@@ -22,9 +22,9 @@
 #include <unistd.h>
 #endif
 
-struct sh4_fn { u32 addr; void (*fn)(SH4 *); };
-extern const struct sh4_fn sh4_fns[];
-extern const int sh4_nfns;
+/* the translated functions, from the game module (module.c) */
+static const struct sh4_fn *sh4_fns;
+static int sh4_nfns;
 
 u8 *sh4_ram;
 SH4 *m1_cpu;
@@ -146,6 +146,9 @@ static void (*find(u32 a))(SH4 *)
 	}
 	return 0;
 }
+
+/* a translated function by its Dreamcast address (threads.c), 0: none */
+void (*m1_translated(u32 a))(SH4 *) { return find(a); }
 
 /* ---- interrupts: the game's own handlers, called at dispatcher calls ---------------------
  * On hardware, an interrupt enters at VBR+0x600, where the game's stub stores INTEVT at
@@ -420,12 +423,11 @@ int main(int argc, char **argv)
 	}
 #endif
 	setvbuf(stdout, 0, getenv("M1_NET") ? _IONBF : _IOLBF, 0);	/* netplay: two instances, see progress as it happens */
-	sh4_fsca_init();
+	sh4_ram = calloc(1, 16 << 20);	/* before the module: it keeps this address */
 	{
 		extern void ta_tag_config(void);
 		ta_tag_config();
 	}
-	sh4_ram = calloc(1, 16 << 20);
 
 	/* RAM as the HLE BIOS leaves it (Flycast reios): system area filled with 0xFF, syscall
 	   vectors pointing at stubs that hle_call() answers, IP.BIN at 8C008000 */
@@ -438,6 +440,27 @@ int main(int argc, char **argv)
 	int config_start(int argc, char **argv, const char **ranges);
 	const char *ranges;
 	const int limit = config_start(argc, argv, &ranges);
+	{
+		/* the game's code: the module built from the player's disc (module.c) */
+		const char *module_path(void);
+		const Sh4Module *module_load(const char **why);
+		const char *why = "";
+		const Sh4Module *m = module_load(&why);
+		int module_build(const char *gdi);
+		const char *config_disc_path(void);
+		if (!m && module_build(config_disc_path()))	/* first start: build it from the disc */
+			m = module_load(&why);
+		if (!m)
+		{
+			char msg[1400];
+			snprintf(msg, sizeof(msg), "The game module %s is %s.\nBuild it from your own disc dump with tools/build.py.",
+					 module_path(), why);
+			m1_stop(msg);
+		}
+		sh4_fns = m->fns;
+		sh4_nfns = m->nfns;
+		m->fsca_init();
+	}
 	state_init(ranges);
 	{
 		void aica_init(void);

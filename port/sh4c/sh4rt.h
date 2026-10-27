@@ -21,12 +21,79 @@ typedef struct SH4
 	u32 sr_ctl, vbr;	/* SR without T/S/Q/M (MD, RB, BL, FD, IMASK); VBR */
 } SH4;
 
+/* setjmp for the context-save routines (see sh4_ctx_slot below). Linux: glibc setjmp (users
+   longjmp between stacks with _FORTIFY_SOURCE off). Windows x64: the CRT longjmp unwinds
+   through SEH and clang's __builtin_setjmp loses locals there, so m1/sjlj_win64.S saves the
+   callee-saved registers itself and jumps without unwinding (the game module links its own
+   copy: same code, same buffer layout). */
+#ifdef _WIN32
+typedef unsigned long long sh4_jmp_buf[32] __attribute__((aligned(16)));
+int sh4_setjmp(sh4_jmp_buf b) __attribute__((returns_twice));
+void sh4_longjmp(sh4_jmp_buf b) __attribute__((noreturn));
+#else
+#include <setjmp.h>
+typedef jmp_buf sh4_jmp_buf;
+#define sh4_setjmp(b) setjmp(b)
+#define sh4_longjmp(b) longjmp(b, 1)
+#endif
+
+/* The game module (SH4_MODULE: the translated code, built into sc_game.dll on the player's PC
+   from their own disc) reaches the runtime only through this table, which the executable fills
+   in (m1/module.c); the executable itself holds no translated code. Bump SH4_MODULE_ABI when
+   the table or SH4 changes: the executable refuses a module built for another one. */
+#define SH4_MODULE_ABI 1
+typedef struct
+{
+	u32 abi;
+	u8 *ram;			/* main RAM: allocated before the module is attached, never moved */
+	u32 *tag_lo, *tag_len, *loop_cycles;
+	u32 (*hw_read)(u32 addr, int size);
+	void (*hw_write)(u32 addr, u32 value, int size);
+	void (*tag_write)(u32 offset);
+	void (*call)(SH4 *c, u32 addr);
+	void (*jump)(SH4 *c, u32 addr);
+	sh4_jmp_buf *(*ctx_slot)(SH4 *c, u32 buffer);
+	void (*ctx_resumed)(SH4 *c);
+	void (*hook)(SH4 *c, u32 addr);
+	void (*loop_poll)(SH4 *c);
+	void (*pref)(SH4 *c, u32 addr);
+	void (*unimpl)(SH4 *c, u32 addr, u32 op);
+} Sh4Host;
+struct sh4_fn { u32 addr; void (*fn)(SH4 *); };
+typedef struct
+{
+	u32 abi;
+	const struct sh4_fn *fns;	/* sorted by address */
+	int nfns;
+	void (*fsca_init)(void);
+	const char *translator;		/* the translator's version (sweep.py), for the lobby */
+} Sh4Module;
+#ifdef SH4_MODULE
+/* the module's own copy of the table (module.c), so each use is one load, as a global was */
+extern Sh4Host sh4_host;
+#define sh4_ram (sh4_host.ram)
+#define sh4_tag_lo (*sh4_host.tag_lo)
+#define sh4_tag_len (*sh4_host.tag_len)
+#define sh4_loop_cycles (*sh4_host.loop_cycles)
+#define sh4_hw_read(a, s) sh4_host.hw_read(a, s)
+#define sh4_hw_write(a, v, s) sh4_host.hw_write(a, v, s)
+#define sh4_tag_write(o) sh4_host.tag_write(o)
+#define sh4_call(c, a) sh4_host.call(c, a)
+#define sh4_jump(c, a) sh4_host.jump(c, a)
+#define sh4_ctx_slot(c, b) sh4_host.ctx_slot(c, b)
+#define sh4_ctx_resumed(c) sh4_host.ctx_resumed(c)
+#define sh4_hook(c, a) sh4_host.hook(c, a)
+#define sh4_loop_poll(c) sh4_host.loop_poll(c)
+#define sh4_pref(c, a) sh4_host.pref(c, a)
+#define sh4_unimpl(c, a, o) sh4_host.unimpl(c, a, o)
+#else
 /* 16 MB main RAM at 0x0C000000 (P1 0x8C000000 / P2 0xAC000000 mirrors). */
 extern u8 *sh4_ram;
 
 /* Non-RAM accesses (hardware registers, BIOS, VRAM ...) go to the host. */
 u32 sh4_hw_read(u32 addr, int size);
 void sh4_hw_write(u32 addr, u32 value, int size);
+#endif
 
 static inline int sh4_is_ram(u32 a) { return ((a >> 26) & 7) == 3 && (a >> 29) != 7; }
 
@@ -45,8 +112,10 @@ static inline u32 rd32(u32 a)
    reported, so the renderer can tell which game code filled each slot of Kamui's vertex
    buffers (which reach the TA later by DMA) */
 #ifdef SH4_TAG_WRITES
+#ifndef SH4_MODULE
 extern u32 sh4_tag_lo, sh4_tag_len;
 void sh4_tag_write(u32 offset);
+#endif
 #define SH4_TAG(a) do { if ((u32)(((a) & 0xffffff) - sh4_tag_lo) < sh4_tag_len) sh4_tag_write((a) & 0xffffff); } while (0)
 #else
 #define SH4_TAG(a) do { } while (0)
@@ -263,24 +332,13 @@ static inline void sh4_ftrv(SH4 *c, int n)
 static inline void sh4_frchg(SH4 *c) { sh4_set_fpscr(c, c->fpscr ^ (1u << 21)); }
 static inline void sh4_fschg(SH4 *c) { c->fpscr ^= 1u << 20; }
 
+#ifndef SH4_MODULE
 /* Calls and jumps to a Dreamcast address: translated function, HLE stub or error. */
 void sh4_call(SH4 *c, u32 addr);
 void sh4_jump(SH4 *c, u32 addr);
 /* Calls to a context-save routine (setjmp semantics, see SETJMP_FUNCS in sh4c.py) are emitted
-   as `if (!sh4_setjmp(*sh4_ctx_slot(c, buffer))) sh4_call(...); else sh4_ctx_resumed(c);`.
-   Linux: glibc setjmp (users longjmp between stacks with _FORTIFY_SOURCE off). Windows x64:
-   the CRT longjmp unwinds through SEH and clang's __builtin_setjmp loses locals there, so
-   m1/sjlj_win64.S saves the callee-saved registers itself and jumps without unwinding. */
-#ifdef _WIN32
-typedef unsigned long long sh4_jmp_buf[32] __attribute__((aligned(16)));
-int sh4_setjmp(sh4_jmp_buf b) __attribute__((returns_twice));
-void sh4_longjmp(sh4_jmp_buf b) __attribute__((noreturn));
-#else
-#include <setjmp.h>
-typedef jmp_buf sh4_jmp_buf;
-#define sh4_setjmp(b) setjmp(b)
-#define sh4_longjmp(b) longjmp(b, 1)
-#endif
+   as `if (!sh4_setjmp(*sh4_ctx_slot(c, buffer))) sh4_call(...); else sh4_ctx_resumed(c);`
+   (sh4_setjmp: see the top of this file). */
 sh4_jmp_buf *sh4_ctx_slot(SH4 *c, u32 buffer);
 void sh4_ctx_resumed(SH4 *c);
 /* runtime hook before the instruction at addr (addresses from sh4c/hooks.txt) */
@@ -292,3 +350,4 @@ void sh4_loop_poll(SH4 *c);	/* from tight loops: run the clock, take pending int
 /* pref @Rn: store-queue flush when Rn is in 0xE0000000-0xE3FFFFFF. */
 void sh4_pref(SH4 *c, u32 addr);
 void sh4_unimpl(SH4 *c, u32 addr, u32 op);
+#endif

@@ -6,6 +6,11 @@ data: it runs your own disc dump.
 
 Start Voldorium.exe. The first time, it asks for your disc dump (the .gdi file of your own
 disc, with its track files next to it); after that it starts straight away.
+The game's code is not in Voldorium.exe: it is the game module sc_game.dll, made from your disc
+on this PC. When it is missing (a downloaded Voldorium, or after an update) the first start
+builds it: it tells you what it downloads (the compiler, two small Flycast files, Python if you
+have none, each checked against a fixed SHA-256, into the builder folder), asks, and takes a
+minute or two in a window of its own. Never share sc_game.dll: it is the game's code.
 Everything else is in the game's own menus. To choose another disc dump, delete the "disc ="
 line in voldorium.ini.
 

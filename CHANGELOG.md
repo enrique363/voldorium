@@ -2,6 +2,28 @@
 
 All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); see the README.
 
+## 1.1.0 (2026-10-27)
+
+### Changed
+- **The game's code is now a module of its own, `sc_game.dll`, and `Voldorium.exe` holds none
+  of it** (885 KB instead of 17.5 MB; the build checks for translated functions and pieces of
+  the game's executable). The module talks to the runtime through a fixed table of about twenty
+  functions and variables. Same game: screenshots from the menus into a fight are byte-identical
+  to 1.0.10, SyncTest and netplay checksums match, and the game runs within a few percent of
+  1.0.10's speed (unpaced; far inside a 60 fps frame). Builds of the module are reproducible: the
+  same disc and version give the same file on every PC.
+- The lobby's build key now also covers the translator, so players who meet online run the same
+  game module as well as the same executable.
+
+### Added
+- **A ready-to-run Windows download** (`Voldorium-1.1.0-windows.zip`, about 2 MB): unzip it,
+  start `Voldorium.exe`, choose your disc dump. It holds no game code.
+- **First start builds the game from your disc.** A Voldorium folder without `sc_game.dll`
+  (the download, or `tools/build.py --only release`) builds it at its first start, after saying
+  what it downloads and asking: `builder/first_run.bat` extracts, translates and compiles, in
+  about half a minute on a fast PC once the tools are there. A module from another version is
+  rebuilt the same way. See the README's Installing section.
+
 ## 1.0.10 (2026-10-24)
 
 ### Fixed
