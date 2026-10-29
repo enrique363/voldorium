@@ -94,6 +94,21 @@ UdpProtocol::SendInput(GameInput &input)
          _timesync.advance_frame(input, _local_frame_advantage, _remote_frame_advantage);
 
          /*
+          * sc port: a frame delay increase skips frames here: the local input queue fills them
+          * with copies of the last input (InputQueue::AdvanceQueueHead), and only the new frame
+          * comes this way. The stream must stay contiguous (SendPendingOutput asserts it, and the
+          * receiver numbers frames by position), so send the same copies. _last_sent_input is
+          * the last input pushed: every push is followed by SendPendingOutput.
+          */
+         if (_last_sent_input.frame != GameInput::NullFrame) {
+            GameInput pad = _last_sent_input;
+            while (pad.frame + 1 < input.frame) {
+               pad.frame++;
+               _pending_output.push(pad);
+            }
+         }
+
+         /*
           * Save this input packet
           *
           * XXX: This queue may fill up for spectators who do not ack input packets in a timely
@@ -294,7 +309,7 @@ UdpProtocol::HandlesMsg(sockaddr_in &from,
    if (!_udp) {
       return false;
    }
-   return _peer_addr.sin_addr.S_un.S_addr == from.sin_addr.S_un.S_addr &&
+   return _peer_addr.sin_addr.s_addr == from.sin_addr.s_addr &&
           _peer_addr.sin_port == from.sin_port;
 }
 

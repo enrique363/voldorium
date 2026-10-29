@@ -3,6 +3,9 @@ PORT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 SC=$(cd "$PORT/.." && pwd)
 SCW=$(cygpath -m "$SC" 2>/dev/null || echo "$SC")
 EXE="$(cygpath -u "$LOCALAPPDATA" 2>/dev/null)/sc-m1/m1.exe"
+# Linux (bash m1/build.sh): the native build; M1_EXE picks another executable
+case "$(uname -s)" in Linux) EXE="$HOME/m1_build/m1";; esac
+EXE="${M1_EXE:-$EXE}"
 OUT="$PORT/build/tests"
 mkdir -p "$OUT"
 # the scripted pad sequence: Start, A ... into an Arcade fight (Kilik)

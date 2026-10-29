@@ -20,6 +20,10 @@
 #include <string.h>
 #ifndef _WIN32
 #include <unistd.h>
+#include <pthread.h>
+#include <sys/stat.h>
+#define Sleep(ms) usleep((ms) * 1000)
+#define ExitProcess(code) _exit(code)
 #endif
 
 /* the translated functions, from the game module (module.c) */
@@ -345,8 +349,8 @@ void sh4_unimpl(SH4 *c, u32 a, u32 op)
 	m1_stop(b);
 }
 
-/* watchdog: stop after the time limit (argv[2] seconds). Linux: SIGALRM on the game thread.
-   Windows: a timer thread raises a flag that the next VBlank checks. */
+/* watchdog: stop after the time limit (argv[2] seconds): a timer thread raises a flag that the
+   next VBlank checks. */
 static volatile int watchdog_fired;
 void m1_check_watchdog(void)
 {
@@ -354,17 +358,30 @@ void m1_check_watchdog(void)
 		m1_stop("watchdog: time limit reached");
 }
 #ifdef _WIN32
-static DWORD WINAPI watchdog_thread(void *arg)
+#define THREAD_FN(name) static DWORD WINAPI name(void *arg)
+#define THREAD_RET 0
+static void start_thread(LPTHREAD_START_ROUTINE fn, void *arg) { CreateThread(0, 0, fn, arg, 0, 0); }
+#else
+#define THREAD_FN(name) static void *name(void *arg)
+#define THREAD_RET 0
+static void start_thread(void *(*fn)(void *), void *arg)
 {
-	Sleep((DWORD)(size_t)arg * 1000);
+	pthread_t t;
+	if (!pthread_create(&t, 0, fn, arg))
+		pthread_detach(t);
+}
+#endif
+THREAD_FN(watchdog_thread)
+{
+	Sleep((unsigned)(size_t)arg * 1000);
 	watchdog_fired = 1;
-	return 0;
+	return THREAD_RET;
 }
 
 /* Hang report: when no frame has been drawn for 8 s (loading screens take under 1 s), the log
    gets what the game is running: the call stack and the last calls through the dispatcher, read
    from this thread while the game is stuck. Once per hang; M1_HANG_EXIT=1 (tests) then exits. */
-static DWORD WINAPI hang_thread(void *arg)
+THREAD_FN(hang_thread)
 {
 	(void)arg;
 	u64 render_count(void);
@@ -396,18 +413,38 @@ static DWORD WINAPI hang_thread(void *arg)
 		if (getenv("M1_HANG_EXIT"))
 			ExitProcess(3);
 	}
-	return 0;
+	return THREAD_RET;
 }
+
+
+static int m1_main(int argc, char **argv);
+#ifdef _WIN32
+int main(int argc, char **argv) { return m1_main(argc, argv); }	/* 64 MB stack: linked with --stack */
 #else
-static void on_alarm(int sig)
+/* the game runs on a 64 MB stack, as on Windows (the main thread's is 8 MB by default) */
+static int main_argc;
+static char **main_argv;
+static void *main_thread(void *arg)
 {
-	(void)sig;
-	m1_stop("watchdog: time limit reached");
+	(void)arg;
+	exit(m1_main(main_argc, main_argv));
+}
+int main(int argc, char **argv)
+{
+	main_argc = argc;
+	main_argv = argv;
+	pthread_attr_t a;
+	pthread_t t;
+	pthread_attr_init(&a);
+	pthread_attr_setstacksize(&a, 64u << 20);
+	if (pthread_create(&t, &a, main_thread, 0))
+		return m1_main(argc, argv);
+	pthread_join(t, 0);
+	return 0;
 }
 #endif
 
-
-int main(int argc, char **argv)
+static int m1_main(int argc, char **argv)
 {
 #ifdef _WIN32
 	const HANDLE out = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -420,6 +457,22 @@ int main(int argc, char **argv)
 		strcpy(slash ? slash + 1 : log, "m1_log.txt");
 		if (!freopen(log, "w", stdout) || !freopen(log, "a", stderr))
 			(void)0;
+	}
+#else
+	struct stat st;
+	if (!isatty(1) && (fstat(1, &st) || !(S_ISREG(st.st_mode) || S_ISFIFO(st.st_mode))))
+	{
+		/* started from the desktop: keep the log next to the executable */
+		char log[1024];
+		const ssize_t n = readlink("/proc/self/exe", log, sizeof(log) - 16);
+		if (n > 0)
+		{
+			log[n] = 0;
+			char *slash = strrchr(log, '/');
+			strcpy(slash ? slash + 1 : log, "m1_log.txt");
+			if (!freopen(log, "w", stdout) || !freopen(log, "a", stderr))
+				(void)0;
+		}
 	}
 #endif
 	setvbuf(stdout, 0, getenv("M1_NET") ? _IONBF : _IOLBF, 0);	/* netplay: two instances, see progress as it happens */
@@ -479,18 +532,9 @@ int main(int argc, char **argv)
 	c.fpscr = 0x00040001;
 	sh4_set_host_fpmode(c.fpscr);
 
-#ifdef _WIN32
-	CreateThread(0, 0, hang_thread, 0, 0, 0);	/* a frozen game says where in the log */
-#endif
+	start_thread(hang_thread, 0);	/* a frozen game says where in the log */
 	if (limit > 0)	/* development runs: stop after the time limit */
-	{
-#ifdef _WIN32
-		CreateThread(0, 0, watchdog_thread, (void *)(size_t)limit, 0, 0);
-#else
-		signal(SIGALRM, on_alarm);
-		alarm(limit);
-#endif
-	}
+		start_thread(watchdog_thread, (void *)(size_t)limit);
 	sh4_call(&c, 0x8c010000);
 	m1_stop("start returned");
 	return 0;

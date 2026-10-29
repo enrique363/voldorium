@@ -2,6 +2,38 @@
 
 All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); see the README.
 
+## 1.1.2 (2026-10-29)
+
+### Added
+- **A native Linux version** (`Voldorium-1.1.2-linux.tar.gz`), made the same way as the
+  Windows one: the download holds no game code, and the first start builds the game module
+  `sc_game.so` from your own disc, after saying what it downloads and asking. It uses the Zig
+  compiler (pinned, about 50 MB, SHA-256 checked) and Python 3 from the system, asks for the
+  disc dump with the desktop's file picker (zenity or kdialog) and shows the build in a terminal
+  window. One build runs on any 64-bit Linux with glibc 2.28 or newer (2018 on), SDL2 and
+  OpenGL.
+- **Online Versus between Linux and Windows**: both meet in the same lobby (local network or
+  internet, direct or through the relay) and play in step with rollback. In tests a Windows and a
+  Linux copy played lobby matches and two-peer sessions with about 200 rollbacks each, and every
+  state checksum both reported was identical.
+- Tests: `port/tests/crossplay.sh` (a Windows and a Linux peer) and `port/tests/lobby_cross.sh`
+  (a lobby match between them through a local lobby server); the netplay, lobby and SyncTest
+  scripts also run on Linux.
+
+### Changed
+- GGPO (`third_party/ggpo`) builds on Linux: its Linux platform layer did not compile upstream.
+  Its packets are byte for byte the same on both systems.
+- Linux builds: the game runs on a 64 MB stack as on Windows, the time limit and the hang report
+  of development runs work there too, and a copy started from the desktop logs to `m1_log.txt`
+  next to the executable.
+
+### Fixed
+- Online matches no longer freeze when a fight ends. Leaving a fight raises the input delay
+  (2 frames in fights, 8 elsewhere), and GGPO sent the other player only the new frame, not the
+  frames the longer delay inserts; it then stopped on an internal check (on Windows behind an
+  unseen message box) and the other player saw the connection drop. GGPO now sends those
+  frames too (`third_party/ggpo`, `udp_proto.cpp`).
+
 ## 1.1.0 (2026-10-27)
 
 ### Changed

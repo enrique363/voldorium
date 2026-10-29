@@ -125,6 +125,56 @@ static void patch_main(void)
 #include <ws2tcpip.h>
 #include <windows.h>
 #include <io.h>
+#define LAST_ERROR ((unsigned long)GetLastError())
+static void env_put(const char *name, const char *value) { _putenv_s(name, value); }	/* "" removes it */
+static void set_nonblocking(SOCKET s) { u_long nb = 1; ioctlsocket(s, FIONBIO, &nb); }
+static u32 random_id(void)
+{
+	LARGE_INTEGER t;
+	QueryPerformanceCounter(&t);
+	return (u32)t.QuadPart ^ (GetCurrentProcessId() << 16);
+}
+#else
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <time.h>
+#include <spawn.h>
+#include <stdarg.h>
+typedef int SOCKET;
+typedef u32 DWORD;
+typedef int BOOL;
+#define TRUE 1
+#define INVALID_SOCKET (-1)
+#define closesocket close
+#define WSAGetLastError() errno
+#define LAST_ERROR ((unsigned long)errno)
+extern char **environ;
+static DWORD GetTickCount(void)
+{
+	struct timespec t;
+	clock_gettime(CLOCK_MONOTONIC, &t);
+	return (DWORD)((u64)t.tv_sec * 1000 + (u64)t.tv_nsec / 1000000);
+}
+static void env_put(const char *name, const char *value)
+{
+	if (*value)
+		setenv(name, value, 1);
+	else
+		unsetenv(name);	/* as on Windows: an empty value removes it */
+}
+static void set_nonblocking(SOCKET s) { fcntl(s, F_SETFL, fcntl(s, F_GETFL, 0) | O_NONBLOCK); }
+static u32 random_id(void)
+{
+	struct timespec t;
+	clock_gettime(CLOCK_MONOTONIC, &t);
+	return (u32)t.tv_nsec ^ (u32)t.tv_sec ^ ((u32)getpid() << 16);
+}
+#endif
 
 const char *config_get(const char *section, const char *key);
 const char *config_disc_path(void);
@@ -195,6 +245,7 @@ static void clean_name(char *dst, const char *src, size_t n)
 
 static int sock_init(void)
 {
+#ifdef _WIN32
 	static int wsa;
 	if (!wsa)
 	{
@@ -203,6 +254,7 @@ static int sock_init(void)
 			return 0;
 		wsa = 1;
 	}
+#endif
 	if (disc_sock == INVALID_SOCKET)
 	{
 		disc_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
@@ -214,8 +266,7 @@ static int sock_init(void)
 		a.sin_port = htons(DISCOVERY_PORT);
 		if (bind(disc_sock, (struct sockaddr *)&a, sizeof(a)))
 			printf("online: discovery port %d: error %d\n", DISCOVERY_PORT, WSAGetLastError());
-		u_long nb = 1;
-		ioctlsocket(disc_sock, FIONBIO, &nb);
+		set_nonblocking(disc_sock);
 	}
 	if (game_sock == INVALID_SOCKET)
 	{
@@ -232,8 +283,7 @@ static int sock_init(void)
 				game_port = p;
 				BOOL on = TRUE;
 				setsockopt(s, SOL_SOCKET, SO_BROADCAST, (const char *)&on, sizeof(on));
-				u_long nb = 1;
-				ioctlsocket(s, FIONBIO, &nb);
+				set_nonblocking(s);
 			}
 			else
 				closesocket(s);
@@ -241,9 +291,7 @@ static int sock_init(void)
 	}
 	if (!my_id)
 	{
-		LARGE_INTEGER t;
-		QueryPerformanceCounter(&t);
-		my_id = (u32)t.QuadPart ^ (GetCurrentProcessId() << 16) ^ 0x5c5c0001u;
+		my_id = random_id() ^ 0x5c5c0001u;
 		/* never the computer's name (it often holds the owner's real name): a generic PLAYER,
 		   shown to others as OPPONENT, unless the player sets a nickname ([net] name) */
 		const char *n = config_get("net", "name");
@@ -600,7 +648,7 @@ static void poll(void)
 		{
 			char m[256];
 			struct sockaddr_in from;
-			int fl = sizeof(from);
+			socklen_t fl = sizeof(from);
 			const int n = recvfrom(ss[k], m, sizeof(m) - 1, 0, (struct sockaddr *)&from, &fl);
 			if (n <= 0)
 				break;
@@ -676,16 +724,44 @@ static void poll(void)
    M1_CHILD_PADS replaces its M1_PADS script. */
 static int relaunch(const char *extra)
 {
-	char exe[MAX_PATH], cmd[1400];
+	char exe[1024], cmd[1400];
+#ifdef _WIN32
 	GetModuleFileNameA(0, exe, sizeof(exe));
+#else
+	const ssize_t len = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
+	if (len <= 0)
+		return 0;
+	exe[len] = 0;
+#endif
 	int n = snprintf(cmd, sizeof(cmd), "\"%s\" --disc \"%s\" --ranges \"%s\" %s", exe, config_disc_path(),
 					 config_ranges_path(), extra);
 	if (getenv("M1_CHILD_SECONDS"))
 		snprintf(cmd + n, sizeof(cmd) - (size_t)n, " --seconds %s", getenv("M1_CHILD_SECONDS"));
 	if (getenv("M1_CHILD_PADS"))
-		_putenv_s("M1_PADS", getenv("M1_CHILD_PADS"));
+		env_put("M1_PADS", getenv("M1_CHILD_PADS"));
 	fflush(stdout);
 	fflush(stderr);
+#ifndef _WIN32
+	/* the same command line as on Windows, split into arguments ("..." quotes one) */
+	char *argv[32];
+	int argc = 0;
+	for (char *q = cmd; *q && argc < 31;)
+	{
+		while (*q == ' ')
+			q++;
+		if (!*q)
+			break;
+		const int quoted = *q == '"';
+		argv[argc++] = q += quoted;
+		while (*q && (quoted ? *q != '"' : *q != ' '))
+			q++;
+		if (*q)
+			*q++ = 0;
+	}
+	argv[argc] = 0;
+	pid_t pid;
+	return posix_spawn(&pid, exe, 0, 0, argv, environ) == 0;	/* stdout and stderr are inherited */
+#else
 	STARTUPINFOA si = { sizeof(si) };
 	HANDLE out = (HANDLE)_get_osfhandle(_fileno(stdout)), err = (HANDLE)_get_osfhandle(_fileno(stderr));
 	const BOOL inherit = out != INVALID_HANDLE_VALUE && err != INVALID_HANDLE_VALUE;
@@ -704,6 +780,7 @@ static int relaunch(const char *extra)
 	CloseHandle(pi.hThread);
 	CloseHandle(pi.hProcess);
 	return 1;
+#endif
 }
 
 /* restarts this program into the session: both sides boot into VS BATTLE (config.c --versus);
@@ -724,7 +801,7 @@ static void start_match(int player, const char *relay)
 	if (relay)
 		snprintf(args + n, sizeof(args) - (size_t)n, " --relay %s,%08x", relay, my_id);
 	if (!relaunch(args))
-		m1_fatal("Could not start the match (error %lu).", GetLastError());
+		m1_fatal("Could not start the match (error %lu).", LAST_ERROR);
 	exit(0);
 }
 
@@ -740,7 +817,7 @@ void online_return(const char *why)
 	static const char *const session[] = { "M1_NET", "M1_NET_PRELUDE", "M1_NET_RELAY", "M1_NET_OPPONENT",
 										   "M1_NET_MENU_DELAY", "M1_PADS", "M1_CHILD_PADS", "M1_LOBBY_TEST" };
 	for (unsigned i = 0; i < sizeof(session) / sizeof(session[0]); i++)
-		_putenv_s(session[i], "");
+		env_put(session[i], "");
 	char arg[160], *o = arg;
 	o += sprintf(o, "--back \"");
 	for (const char *s = why[0] ? why : "-"; *s && o < arg + sizeof(arg) - 2; s++)
@@ -748,7 +825,7 @@ void online_return(const char *why)
 			*o++ = *s;
 	strcpy(o, "\"");
 	if (!relaunch(arg))
-		m1_fatal("Could not restart the game (error %lu).", GetLastError());
+		m1_fatal("Could not restart the game (error %lu).", LAST_ERROR);
 	exit(0);
 }
 
@@ -1121,11 +1198,3 @@ void online_menu(SH4 *c, void (*f)(SH4 *))
 		graphics_choose((int)v);
 	}
 }
-#else
-void online_menu(SH4 *c, void (*f)(SH4 *))
-{
-	(void)patch_main;
-	f(c);	/* Linux build: the entry stays hidden */
-}
-void online_return(const char *why) { m1_stop(why); }
-#endif

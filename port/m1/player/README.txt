@@ -1,8 +1,9 @@
 Voldorium
 =========
 
-A native Windows engine for the Dreamcast fighting game SoulCalibur (USA). It contains no game
-data: it runs your own disc dump.
+A native Windows and Linux engine for the Dreamcast fighting game SoulCalibur (USA). It contains
+no game data: it runs your own disc dump. (Linux: read voldorium for Voldorium.exe, sc_game.so for
+sc_game.dll, and see the Linux section below.)
 
 Start Voldorium.exe. The first time, it asks for your disc dump (the .gdi file of your own
 disc, with its track files next to it); after that it starts straight away.
@@ -62,12 +63,24 @@ Players on other networks (over the internet) appear in the same list, through t
 server: still no ports to set. If your router blocks a direct connection, the match goes
 through the server's relay automatically.
 
+Linux
+-----
+The Linux download works the same way: start "voldorium" (from a file manager or a terminal).
+The first start asks for the disc dump with your desktop's file picker (zenity or kdialog; without
+either it says where to write the path in voldorium.ini) and builds the game module sc_game.so,
+in a terminal window when it finds one: it downloads the Zig compiler (about 50 MB) and the two
+Flycast files into the builder folder, and needs Python 3 (python3), which most systems have.
+Needs a 64-bit PC with glibc 2.28 or newer (2018 on), SDL2 (libSDL2-2.0.so.0) and OpenGL; desktop
+systems have them. Never share sc_game.so: it is the game's code. Online Versus matches Linux and
+Windows players of the same version.
+
 Steam Deck
 ----------
-Copy this whole folder and your disc dump to the Deck. In Desktop Mode, Steam > Games > Add a
-Non-Steam Game to My Library > Voldorium.exe; then in its Properties > Compatibility, force a
-recent Proton. The first start asks for the disc dump. It is the same program as on Windows, so
-Online Versus works between Deck and Windows players with the same build. The 1280x800 screen
+Either version runs on the Deck. Linux (native): copy this folder and your disc dump to the
+Deck, start voldorium once in Desktop Mode (the first start builds the game; SteamOS's desktop
+comes with Python and kdialog, but this is not yet tested on a real Deck), then Steam > Games > Add a Non-Steam Game to My Library > voldorium. Windows: add
+Voldorium.exe the same way, and in its Properties > Compatibility force a recent Proton. Online
+Versus works between Deck, Linux and Windows players of the same version. The 1280x800 screen
 shows the game in 16:9 with thin bars above and below.
 
 Memory card

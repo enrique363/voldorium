@@ -17,6 +17,11 @@ whatever is missing into toolchain/, at the exact versions below, and checks the
 builder then has the same compiler, so every build of the same sources is the same program (the
 online lobby only matches identical builds).
 
+Linux: the same steps with Zig (a pinned clang toolchain) instead of llvm-mingw, giving
+sc_game.so; the Linux executable for a release is built with --only host (SDL2 and OpenGL
+development files from the system; the executable needs glibc 2.28 or newer). Development
+builds on Linux can also use port/m1/build.sh (gcc).
+
 Only the game's own code comes from the disc, on your machine; nothing of the game is downloaded
 or stored in the repository.
 """
@@ -28,6 +33,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tarfile
 import time
 import urllib.request
 import zipfile
@@ -37,6 +43,8 @@ PORT = os.path.join(SC, 'port')
 CACHE = os.path.join(SC, 'toolchain')
 LOCAL = os.environ.get('LOCALAPPDATA') or os.path.expanduser('~')
 OUT = os.path.join(LOCAL, 'sc-m1')          # objects and executables (outside the repository; --out moves them)
+LINUX = sys.platform.startswith('linux')
+ZIG_TARGET = 'x86_64-linux-gnu.2.28'       # runs on glibc 2.28 and newer (2018 on: Debian 10, Ubuntu 20.04, SteamOS 3)
 
 # pinned downloads: name -> (url, sha256, folder inside toolchain/ once unpacked). The SHA-256s are
 # the ones GitHub publishes for the release files, and for Flycast's two files those of its commit
@@ -50,6 +58,9 @@ PINNED = {
                      '2ab87d6df67546c8a27febafb2c2e520fd1266b91633e4edfa8ec48b58218300', 'flycast/core/hw/sh4'),
     'biosfont.bin.zip': ('https://raw.githubusercontent.com/flyinghead/flycast/%s/fonts/biosfont.bin.zip' % FLYCAST_COMMIT,
                          'e996bc0f9854fbe7ad057948c8cda6ff9ef9b4b6d0347c92f1ecad71a92214ce', 'flycast/fonts'),
+    # Linux: the SHA-256 ziglang.org publishes in its download index
+    'zig': ('https://ziglang.org/download/0.14.1/zig-x86_64-linux-0.14.1.tar.xz',
+            '24aeeec8af16c381934a6cd7d95c807a8cb2cf7df9fa40d359aa884195c4716c', 'zig-x86_64-linux-0.14.1'),
 }
 
 GAME_SOURCES = ['m1', 'hw', 'hle', 'threads', 'maple', 'ta', 'tex', 'render', 'state', 'netplay', 'aica', 'arm7',
@@ -101,8 +112,9 @@ def download(name):
 
 def tool_dirs(allow_download, need_sdl=True):
     """(llvm-mingw, SDL2 x86_64 folder, folder holding fsca-table.h, biosfont.bin.zip or None).
-    need_sdl False: the game module alone (no SDL2 needed or fetched)."""
-    env = dict(local_env(), **{k: v for k, v in os.environ.items() if k in ('LLVM_MINGW', 'SDL2_DIR', 'FLYCAST')})
+    need_sdl False: the game module alone (no SDL2 needed or fetched). Linux: (zig folder, None,
+    fsca folder, font): SDL2 comes from the system."""
+    env = dict(local_env(), **{k: v for k, v in os.environ.items() if k in ('LLVM_MINGW', 'SDL2_DIR', 'FLYCAST', 'ZIG')})
     engines = os.path.join(os.path.dirname(SC), 'engines')
 
     def first(*cands):
@@ -111,13 +123,17 @@ def tool_dirs(allow_download, need_sdl=True):
                 return c
         return None
 
-    llvm = first(env.get('LLVM_MINGW'), os.path.join(engines, PINNED['llvm-mingw'][2]), os.path.join(CACHE, PINNED['llvm-mingw'][2]))
+    if LINUX:
+        llvm = first(env.get('ZIG'), os.path.join(engines, PINNED['zig'][2]), os.path.join(CACHE, PINNED['zig'][2]))
+        need_sdl = False
+    else:
+        llvm = first(env.get('LLVM_MINGW'), os.path.join(engines, PINNED['llvm-mingw'][2]), os.path.join(CACHE, PINNED['llvm-mingw'][2]))
     sdl = first(env.get('SDL2_DIR'), os.path.join(engines, 'SDL2-2.32.10', 'x86_64-w64-mingw32'),
                 os.path.join(CACHE, PINNED['sdl2'][2], 'x86_64-w64-mingw32'))
     fly = env.get('FLYCAST') or os.path.join(engines, 'flycast')
     fsca = first(os.path.join(fly, 'core', 'hw', 'sh4', 'fsca-table.h'), os.path.join(CACHE, 'flycast', 'core', 'hw', 'sh4', 'fsca-table.h'))
     font = first(os.path.join(fly, 'fonts', 'biosfont.bin.zip'), os.path.join(CACHE, 'flycast', 'fonts', 'biosfont.bin.zip'))
-    missing = [n for n, v in (('llvm-mingw', llvm), ('sdl2', sdl), ('fsca-table.h', fsca), ('biosfont.bin.zip', font))
+    missing = [n for n, v in (('zig' if LINUX else 'llvm-mingw', llvm), ('sdl2', sdl), ('fsca-table.h', fsca), ('biosfont.bin.zip', font))
                if not v and (need_sdl or n != 'sdl2')]
     if missing and not allow_download:
         fail('missing tools: %s. Run with --download to fetch them into toolchain/ (or set LLVM_MINGW, SDL2_DIR, FLYCAST).'
@@ -127,7 +143,9 @@ def tool_dirs(allow_download, need_sdl=True):
         data = download(name)
         dest = os.path.join(CACHE, PINNED[name][2])
         os.makedirs(dest, exist_ok=True)
-        if name in ('llvm-mingw', 'sdl2'):
+        if name == 'zig':
+            tarfile.open(fileobj=io.BytesIO(data), mode='r:xz').extractall(os.path.dirname(dest))
+        elif name in ('llvm-mingw', 'sdl2'):
             zipfile.ZipFile(io.BytesIO(data)).extractall(os.path.dirname(dest) if name == 'llvm-mingw' else dest)
             if name == 'sdl2':   # the zip holds SDL2-2.32.10/...: lift it one level
                 inner = os.path.join(dest, PINNED['sdl2'][2])
@@ -139,7 +157,14 @@ def tool_dirs(allow_download, need_sdl=True):
             open(os.path.join(dest, name), 'wb').write(data)
     if missing:
         return tool_dirs(False, need_sdl)
-    return llvm, sdl, os.path.dirname(fsca), font
+    return llvm, None if LINUX else sdl, os.path.dirname(fsca), font
+
+
+def zig_cc(zig, cxx=False):
+    """Zig's clang for Linux, at the release's glibc baseline; its cache in OUT, not the home folder."""
+    os.environ.setdefault('ZIG_GLOBAL_CACHE_DIR', os.path.join(OUT, 'zig-cache'))
+    os.environ.setdefault('ZIG_LOCAL_CACHE_DIR', os.path.join(OUT, 'zig-cache'))
+    return [os.path.join(zig, 'zig'), 'c++' if cxx else 'cc', '-target', ZIG_TARGET]
 
 
 def run(cmd, cwd=PORT):
@@ -229,8 +254,8 @@ def step_ggpo(llvm):
 # reproducible: no time stamps in objects or executables, so the same sources build the same bytes,
 # and no folder names (they would carry the user's name)
 def cflags():
-    return ['-O1', '-ffp-contract=off', '-fno-strict-aliasing', '-I', 'sh4c', '-DSH4_TAG_WRITES', '-mno-incremental-linker-compatible',
-            '-ffile-prefix-map=%s=.' % PORT]
+    return ['-O1', '-ffp-contract=off', '-fno-strict-aliasing', '-I', 'sh4c', '-DSH4_TAG_WRITES', '-ffile-prefix-map=%s=.' % PORT] + \
+        ([] if LINUX else ['-mno-incremental-linker-compatible'])
 
 
 def translator_id():
@@ -240,33 +265,44 @@ def translator_id():
 
 
 def step_module(llvm, fsca_dir, font_zip, out, label='[4/5]'):
-    """The game module sc_game.dll: the translated code, the fsca table (Flycast's, fetched at build
-    time) and module.c. Also the BIOS font next to it (Flycast's, fetched the same way)."""
+    """The game module sc_game.dll (Linux: sc_game.so): the translated code, the fsca table
+    (Flycast's, fetched at build time) and module.c. Also the BIOS font next to it (Flycast's,
+    fetched the same way)."""
     say('%s Compiling the game module (a minute or two)...' % label)
     gobj = os.path.join(OUT, 'obj', 'game')
     os.makedirs(gobj, exist_ok=True)
-    cc = os.path.join(llvm, 'bin', 'x86_64-w64-mingw32-clang')
     sweep = os.path.join(PORT, 'build', 'sweep')
     rt = os.path.join(PORT, 'sh4c', 'sh4rt.h')
-    gf = cflags() + ['-DSH4_MODULE', '-fno-auto-import', '-w']   # its globals are its own: no .refptr indirection
+    if LINUX:
+        cc = zig_cc(llvm)
+        gf = cflags() + ['-DSH4_MODULE', '-fPIC', '-w']
+    else:
+        cc = [os.path.join(llvm, 'bin', 'x86_64-w64-mingw32-clang')]
+        gf = cflags() + ['-DSH4_MODULE', '-fno-auto-import', '-w']   # its globals are its own: no .refptr indirection
     jobs = []
     for f in ['all_%d.c' % k for k in range(8)] + ['dispatch.c']:   # only what changed (it is large)
         o = os.path.join(gobj, f[:-2] + '.o')
         if newer(o, [os.path.join(sweep, f), rt]):
-            jobs.append(([cc] + gf + ['-c', '-o', o, os.path.join(sweep, f)],))
+            jobs.append((cc + gf + ['-c', '-o', o, os.path.join(sweep, f)],))
     o = os.path.join(gobj, 'fsca.o')
     if newer(o, [os.path.join(PORT, 'sh4c', 'fsca.c'), rt]):
-        jobs.append(([cc] + gf + ['-I', fsca_dir, '-c', '-o', o, 'sh4c/fsca.c'],))
-    jobs.append(([cc] + gf + ['-DSH4_TRANSLATOR="%s"' % translator_id(), '-c', '-o', os.path.join(gobj, 'module.o'), 'sh4c/module.c'],))
-    jobs.append(([cc, '-mno-incremental-linker-compatible', '-c', '-o', os.path.join(gobj, 'sjlj_win64.o'), 'm1/sjlj_win64.S'],))
+        jobs.append((cc + gf + ['-I', fsca_dir, '-c', '-o', o, 'sh4c/fsca.c'],))
+    jobs.append((cc + gf + ['-DSH4_TRANSLATOR="%s"' % translator_id(), '-c', '-o', os.path.join(gobj, 'module.o'), 'sh4c/module.c'],))
+    names = ['all_%d.o' % k for k in range(8)] + ['dispatch.o', 'fsca.o', 'module.o']
+    if not LINUX:
+        jobs.append((cc + ['-mno-incremental-linker-compatible', '-c', '-o', os.path.join(gobj, 'sjlj_win64.o'), 'm1/sjlj_win64.S'],))
+        names.append('sjlj_win64.o')
     t = time.time()
     parallel(jobs)
-    gobjs = [os.path.join(gobj, f) for f in ['all_%d.o' % k for k in range(8)] + ['dispatch.o', 'fsca.o', 'module.o', 'sjlj_win64.o']]
-    dll = os.path.join(out, 'sc_game.dll')
-    run([cc, '-shared', '-o', dll] + gobjs + ['-static-libgcc', '-Wl,--no-insert-timestamp'])
+    gobjs = [os.path.join(gobj, f) for f in names]
+    dll = os.path.join(out, 'sc_game.so' if LINUX else 'sc_game.dll')
+    if LINUX:
+        run(cc + ['-shared', '-o', dll] + gobjs + ['-lm', '-Wl,--build-id=none', '-s'])   # -s: no folder names
+    else:
+        run(cc + ['-shared', '-o', dll] + gobjs + ['-static-libgcc', '-Wl,--no-insert-timestamp'])
     if font_zip and not os.path.exists(os.path.join(out, 'biosfont.bin')):
         zipfile.ZipFile(font_zip).extract('biosfont.bin', out)
-    say('  built sc_game.dll (SHA-256 %s) in %d s' % (hashlib.sha256(open(dll, 'rb').read()).hexdigest()[:16], time.time() - t))
+    say('  built %s (SHA-256 %s) in %d s' % (os.path.basename(dll), hashlib.sha256(open(dll, 'rb').read()).hexdigest()[:16], time.time() - t))
 
 
 def step_host(llvm, sdl):
@@ -300,16 +336,62 @@ def step_host(llvm, sdl):
     say('  built Voldorium.exe (build %s) in %d s' % (bid, time.time() - t))
 
 
+def step_host_linux(zig):
+    """The Linux executable voldorium (and libggpo): the runtime, renderer, sound, netplay and lobby,
+    with Zig at the glibc 2.28 baseline. SDL2 and OpenGL are the system's (headers and libraries
+    here, the player's at run time); C++ (GGPO) is linked in."""
+    say('[4/5] Compiling and linking Voldorium for Linux...')
+    obj = os.path.join(OUT, 'obj')
+    os.makedirs(obj, exist_ok=True)
+    gg = os.path.join(SC, 'third_party', 'ggpo', 'src')
+    # only the SDL2 and OpenGL headers from the system: its libc headers are newer than the baseline
+    inc = os.path.join(OUT, 'sysinc')
+    os.makedirs(inc, exist_ok=True)
+    for d in ('SDL2', 'GL', 'KHR'):   # each file, also from the multiarch folder (Debian, Ubuntu)
+        for src in (os.path.join('/usr/include', d), os.path.join('/usr/include/x86_64-linux-gnu', d)):
+            if os.path.isdir(src):
+                os.makedirs(os.path.join(inc, d), exist_ok=True)
+                for f in os.listdir(src):
+                    if not os.path.lexists(os.path.join(inc, d, f)):
+                        os.symlink(os.path.join(src, f), os.path.join(inc, d, f))
+    sdl_cflags = ['-I', inc, '-I', os.path.join(inc, 'SDL2'), '-D_REENTRANT']
+    sdl_libdir = [x[2:] for x in run(['sdl2-config', '--libs']).split() if x.startswith('-L')] or ['/usr/lib/x86_64-linux-gnu']
+    cc, cxx = zig_cc(zig), zig_cc(zig, True)
+    bid = build_id()
+    jobs = []
+    for name in GAME_SOURCES:
+        opt = ['-O2'] if name == 'tex' else []   # texture upscaling (drawing only, not game state)
+        jobs.append((cc + cflags() + opt + sdl_cflags + ['-I', os.path.join(gg, 'include'), '-I', 'm1', '-DSC_BUILD_ID="%s"' % bid,
+                                                          '-DSC_TRANSLATOR="%s"' % translator_id(), '-c', '-o',
+                                                          os.path.join(obj, 'm1_%s.o' % name), 'm1/%s.c' % name],))
+    gobjs = []
+    for sub in ('lib/ggpo', 'lib/ggpo/backends', 'lib/ggpo/network'):
+        for f in sorted(os.listdir(os.path.join(gg, sub))):
+            if f.endswith('.cpp') and 'platform_windows' not in f:
+                o = os.path.join(obj, 'ggpo_' + f[:-4] + '.o')
+                gobjs.append(o)
+                jobs.append((cxx + ['-O2', '-w', '-std=c++14', '-ffile-prefix-map=%s=.' % gg, '-I', 'include', '-I', 'lib/ggpo',
+                                    '-c', '-o', o, sub + '/' + f], gg))
+    t = time.time()
+    parallel(jobs)
+    objs = [os.path.join(obj, 'm1_%s.o' % n) for n in GAME_SOURCES] + gobjs
+    exe = os.path.join(OUT, 'voldorium')
+    run(cxx + ['-o', exe] + objs + ['-L' + d for d in sdl_libdir] +
+        ['-lSDL2', '-lGL', '-lm', '-ldl', '-lpthread', '-Wl,--build-id=none', '-Wl,--allow-shlib-undefined', '-s'])
+    say('  built voldorium (build %s) in %d s' % (bid, time.time() - t))
+
+
 def step_game(llvm, sdl, fsca_dir, font_zip):
-    step_host(llvm, sdl)
+    step_host_linux(llvm) if LINUX else step_host(llvm, sdl)
     step_module(llvm, fsca_dir, font_zip, OUT)
 
 
 # the release folder: what a player downloads. No game code and nothing made from the disc: the
-# game module is built on the player's PC at the first start (m1/module.c, builder/first_run.bat).
-# Flycast's two files are fetched by that build too, not shipped.
-BUILDER = ['tools/build.py', 'tools/extract_boot.py', 'port/functions.json', 'port/m1/sjlj_win64.S'] + \
+# game module is built on the player's PC at the first start (m1/module.c, builder/first_run.bat,
+# Linux builder/first_run.sh). Flycast's two files are fetched by that build too, not shipped.
+BUILDER = ['tools/build.py', 'tools/extract_boot.py', 'port/functions.json'] + (['port/m1/sjlj_win64.S'] if not LINUX else []) + \
     ['port/sh4c/' + f for f in ['sh4rt.h'] + TRANSLATOR]
+EOL = '\n' if LINUX else '\r\n'   # the player's text files
 
 
 def step_release(rel):
@@ -317,22 +399,25 @@ def step_release(rel):
     if os.path.exists(rel):
         fail('%s already exists: give a new folder' % rel)
     os.makedirs(os.path.join(rel, 'textures'))
-    for f in ('Voldorium.exe', 'm1.exe', 'SDL2.dll'):
+    for f in ('voldorium',) if LINUX else ('Voldorium.exe', 'm1.exe', 'SDL2.dll'):
         shutil.copy2(os.path.join(OUT, f), rel)
     shutil.copy2(os.path.join(SC, 'ggpo', 'savestate_ranges.tsv'), rel)
     for f in os.listdir(os.path.join(PORT, 'm1', 'textures')):
         shutil.copy2(os.path.join(PORT, 'm1', 'textures', f), os.path.join(rel, 'textures'))
     os.makedirs(os.path.join(rel, 'art16x9'))
     text = open(os.path.join(PORT, 'm1', 'player', 'voldorium.ini'), encoding='utf-8').read().replace('{disc}', '')
-    open(os.path.join(rel, 'voldorium.ini'), 'w', encoding='utf-8', newline='\r\n').write(text)
+    open(os.path.join(rel, 'voldorium.ini'), 'w', encoding='utf-8', newline=EOL).write(text)
     readme = open(os.path.join(PORT, 'm1', 'player', 'README.txt'), encoding='utf-8').read()
-    open(os.path.join(rel, 'README.txt'), 'w', encoding='utf-8', newline='\r\n').write(readme)
+    open(os.path.join(rel, 'README.txt'), 'w', encoding='utf-8', newline=EOL).write(readme)
     b = os.path.join(rel, 'builder')
     for f in BUILDER:
         os.makedirs(os.path.dirname(os.path.join(b, f)), exist_ok=True)
         shutil.copy2(os.path.join(SC, f), os.path.join(b, f))
-    bat = open(os.path.join(PORT, 'm1', 'player', 'first_run.bat'), encoding='utf-8').read()
-    open(os.path.join(b, 'first_run.bat'), 'w', encoding='utf-8', newline='\r\n').write(bat)
+    first = 'first_run.sh' if LINUX else 'first_run.bat'
+    text = open(os.path.join(PORT, 'm1', 'player', first), encoding='utf-8').read()
+    open(os.path.join(b, first), 'w', encoding='utf-8', newline=EOL).write(text)
+    if LINUX:
+        os.chmod(os.path.join(b, first), 0o755)
     # the check: no translated function in the executables, no piece of the game's executable anywhere
     boot = os.path.join(SC, 'extracted', '1ST_READ.BIN')
     img = open(boot, 'rb').read() if os.path.exists(boot) else b''
@@ -340,7 +425,7 @@ def step_release(rel):
     for root, _, files in os.walk(rel):
         for f in files:
             data = open(os.path.join(root, f), 'rb').read()
-            binary = f.lower().endswith(('.exe', '.dll'))   # the builder's own sources name them, of course
+            binary = f.lower().endswith(('.exe', '.dll', '.so')) or f == 'voldorium'   # the builder's own sources name them
             if (binary and b'f_8c0' in data) or any(x in data for x in samples):
                 fail('%s holds game code: not releasing' % os.path.join(root, f))
     say('  checked: no game code in %d files (%d samples of 1ST_READ.BIN looked for)' %
@@ -350,7 +435,7 @@ def step_release(rel):
 def step_player(player, gdi):
     say('[5/5] Assembling the player folder %s' % player)
     os.makedirs(os.path.join(player, 'art16x9'), exist_ok=True)
-    for f in ('Voldorium.exe', 'm1.exe', 'sc_game.dll', 'SDL2.dll', 'biosfont.bin'):
+    for f in ('voldorium', 'sc_game.so', 'biosfont.bin') if LINUX else ('Voldorium.exe', 'm1.exe', 'sc_game.dll', 'SDL2.dll', 'biosfont.bin'):
         if os.path.exists(os.path.join(OUT, f)):
             shutil.copy2(os.path.join(OUT, f), player)
     shutil.copy2(os.path.join(SC, 'ggpo', 'savestate_ranges.tsv'), player)
@@ -369,9 +454,9 @@ def step_player(player, gdi):
     if not os.path.exists(ini):
         disc = os.path.abspath(gdi) if gdi else os.path.join(SC, 'disc', 'gdi', 'soulcalibur.gdi')
         text = open(os.path.join(PORT, 'm1', 'player', 'voldorium.ini'), encoding='utf-8').read().replace('{disc}', disc)
-        open(ini, 'w', encoding='utf-8', newline='\r\n').write(text)
+        open(ini, 'w', encoding='utf-8', newline=EOL).write(text)
     readme = open(os.path.join(PORT, 'm1', 'player', 'README.txt'), encoding='utf-8').read()
-    open(os.path.join(player, 'README.txt'), 'w', encoding='utf-8', newline='\r\n').write(readme)
+    open(os.path.join(player, 'README.txt'), 'w', encoding='utf-8', newline=EOL).write(readme)
 
 
 def main():
@@ -379,9 +464,10 @@ def main():
     ap.add_argument('--gdi', help='your SoulCalibur (USA) disc dump, the .gdi file')
     ap.add_argument('--download', action='store_true', help='fetch missing tools into toolchain/')
     ap.add_argument('--player-dir', default=os.path.join(PORT, 'build', 'player'), help='where the player folder goes')
-    ap.add_argument('--only', choices=['ggpo', 'game', 'player', 'module', 'release'],
-                    help='one step (for the build_*.sh wrappers); module: the game module alone, from --gdi, into --module-dir')
-    ap.add_argument('--module-dir', help='where --only module puts sc_game.dll and biosfont.bin')
+    ap.add_argument('--only', choices=['ggpo', 'game', 'host', 'player', 'module', 'release'],
+                    help='one step (for the build_*.sh wrappers); module: the game module alone, from --gdi, into --module-dir; '
+                         'host: the executables alone')
+    ap.add_argument('--module-dir', help='where --only module puts sc_game.dll (Linux: sc_game.so) and biosfont.bin')
     ap.add_argument('--release-dir', help='a new folder for --only release (after a full build)')
     ap.add_argument('--out', help='objects and executables (default %%LOCALAPPDATA%%/sc-m1)')
     a = ap.parse_args()
@@ -394,8 +480,8 @@ def main():
         say('Note: this is the Microsoft Store Python; build files go to the work folder here instead.')
         if not a.out:
             OUT = os.path.join(SC, 'work')
-    if sys.platform != 'win32':
-        fail('this builds the Windows version; run it on Windows')
+    if sys.platform != 'win32' and not LINUX:
+        fail('this builds the Windows and Linux versions; run it on one of them')
     t = time.time()
     llvm, sdl, fsca_dir, font = (None,) * 4 if a.only in ('player', 'release') else tool_dirs(a.download, a.only != 'module')
     if a.only == 'module':   # the first run of a released Voldorium (m1/module.c): the game from the player's disc
@@ -410,7 +496,11 @@ def main():
             fail('--only release needs --release-dir')
         step_release(os.path.abspath(a.release_dir))
     elif a.only == 'ggpo':
+        if LINUX:
+            fail('on Linux GGPO is built with the executable (--only host)')
         step_ggpo(llvm)
+    elif a.only == 'host':
+        step_host_linux(llvm) if LINUX else step_host(llvm, sdl)
     elif a.only == 'game':
         step_game(llvm, sdl, fsca_dir, font)
     elif a.only == 'player':
@@ -418,7 +508,8 @@ def main():
     else:
         step_extract(a.gdi)
         step_translate()
-        step_ggpo(llvm)
+        if not LINUX:
+            step_ggpo(llvm)
         step_game(llvm, sdl, fsca_dir, font)
         step_player(os.path.abspath(a.player_dir), a.gdi)
         say('\nDone in %d min %d s. Voldorium is in %s' % ((time.time() - t) // 60, (time.time() - t) % 60, os.path.abspath(a.player_dir)))

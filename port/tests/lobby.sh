@@ -14,7 +14,7 @@ mkdir -p "$OUT/lobby_a" "$OUT/lobby_b"
 for side in a b; do
   test=challenge; off=0; [ $side = b ] && test=accept && off=7
   child_pads="$(pick $off),$(mash $off)"
-  ( cd "$OUT/lobby_$side" && M1_LOBBY_SERVER="${M1_LOBBY_SERVER:-none}" M1_FULLSCREEN=0 M1_VMU="$(cygpath -m "$OUT/lobby_$side")/vmu_a1.bin" M1_LOBBY_TEST=$test M1_CHILD_SECONDS=$SECS M1_CHILD_PADS="$child_pads" M1_NOSOUND=1 M1_FAST=1 M1_PADS="$PADS" \
+  ( cd "$OUT/lobby_$side" && M1_LOBBY_SERVER="${M1_LOBBY_SERVER:-none}" M1_FULLSCREEN=0 M1_VMU="$(cygpath -m "$OUT/lobby_$side" 2>/dev/null || echo "$OUT/lobby_$side")/vmu_a1.bin" M1_LOBBY_TEST=$test M1_CHILD_SECONDS=$SECS M1_CHILD_PADS="$child_pads" M1_NOSOUND=1 M1_FAST=1 M1_PADS="$PADS" \
       "$EXE" "$SCW" 60 > lobby.txt 2>&1 ) &
 done
 wait

@@ -2,7 +2,7 @@
 
 [![Latest release](https://img.shields.io/github/v/release/enrique363/voldorium?label=latest%20release)](https://github.com/enrique363/voldorium/releases/latest)
 
-A native Windows port of the Dreamcast fighting game **SoulCalibur** (USA, T-1401N, V1.000),
+A native Windows and Linux port of the Dreamcast fighting game **SoulCalibur** (USA, T-1401N, V1.000),
 made by static recompilation: the game's SH-4 machine code is translated into C and compiled
 together with a small native runtime that stands in for the Dreamcast hardware. It adds:
 
@@ -61,7 +61,7 @@ You need Windows 10 or 11, your own disc dump of SoulCalibur (USA, T-1401N, V1.0
 `.gdi` file with its track files, about 1 GB of free disk space and an internet connection for
 the first start. Nothing else has to be installed.
 
-### Download (from 1.1.0)
+### Windows (download, from 1.1.0)
 
 1. From [**Releases**](https://github.com/enrique363/voldorium/releases/latest), under
    **Assets**, download **`Voldorium-<version>-windows.zip`** (about 2 MB) and unzip it anywhere
@@ -85,6 +85,26 @@ between any two players of that version.
 
 To uninstall, delete the folder. Your settings and memory card are in it (`voldorium.ini`,
 `vmu_a1.bin`): keep those two files to carry them over to a new version.
+
+### Linux
+
+You need a 64-bit Linux with glibc 2.28 or newer (any distribution from 2018 on), SDL2 and
+OpenGL (desktop systems have them), Python 3, your own disc dump and an internet connection for
+the first start.
+
+1. From [**Releases**](https://github.com/enrique363/voldorium/releases/latest), download
+   **`Voldorium-<version>-linux.tar.gz`** and unpack it anywhere you can write to
+   (`tar xf Voldorium-<version>-linux.tar.gz`).
+2. Start **`voldorium`** in that folder and choose your `.gdi` file when it asks (with
+   `zenity` or `kdialog`; without either it says where to write the path in `voldorium.ini`).
+3. The first start builds `sc_game.so` from your disc, as on Windows, after saying what it
+   downloads and asking: the [Zig](https://ziglang.org) compiler (0.14.1, about 50 MB) and the
+   two Flycast files, each checked against its SHA-256, into the `builder` folder. It shows the
+   build in a terminal window (konsole, GNOME Terminal or xterm; otherwise it writes
+   `builder/work/build.log`).
+
+Online Versus matches Linux and Windows players of the same version: the lobby key and the game
+are the same, and matches stay in step frame for frame.
 
 ## Building it yourself
 
@@ -151,8 +171,19 @@ game module and the builder (`builder/first_run.bat` and the translator): its fi
 builds `sc_game.dll` from the player's disc, after asking. It refuses to finish if any file in
 it holds a translated function or a piece of `1ST_READ.BIN`.
 
-Everything you build stays on your machine. Do not upload or share `sc_game.dll`, a `Voldorium`
-folder that holds it, or `port/build/`: they contain code translated from the game.
+On Linux, `tools/build.py` uses [Zig](https://ziglang.org) 0.14.1 (`ZIG`, or `--download`)
+for the game module (`--only module`, giving `sc_game.so`) and for the executable `voldorium`
+(`--only host`, at the glibc 2.28 baseline; SDL2 and OpenGL development files from the system),
+and `--only release` assembles the Linux release folder with `builder/first_run.sh`. For
+development, `port/m1/build.sh` builds with the system's gcc into `~/m1_build`, and the test
+scripts run there too (`tests/netplay.sh`, `lobby.sh`, `synctest.sh`). `tests/crossplay.sh` and
+`tests/lobby_cross.sh` play a Windows copy against a Linux copy in WSL and compare their state
+checksums. The lobby key is computed from the same sources on both systems, so a Windows and a
+Linux build of the same version meet in the lobby.
+
+Everything you build stays on your machine. Do not upload or share `sc_game.dll`, `sc_game.so`,
+a `Voldorium` folder that holds one, or `port/build/`: they contain code translated from the
+game.
 
 ## Playing
 
@@ -171,22 +202,19 @@ Settings (`voldorium.ini`): `[video] fullscreen, resolution, window, msaa, backg
 (`stretch`, `blur` or `replace`), `[net] lobby, name`, `[game] disc, vmu, loading` (`original` or `fast`). More detail is in
 `port/README.md` and in the README.txt of the player folder.
 
-## Steam Deck (and other Linux PCs)
+## Steam Deck
 
-The Windows build runs through Proton. It is the same program as on Windows, so Online Versus
-matches Steam Deck players with Windows players built from the same sources. Tested under Wine
-10 on Linux (boot, menus, fights, and a lobby match against a Windows PC, in step frame for
-frame); not yet on a real Deck: reports are welcome.
+Either version runs on the Deck; neither is tested on a real Deck yet, so reports are welcome.
+Online Versus matches Deck, Linux and Windows players of the same version.
 
-1. Build on a Windows PC as above, then copy the whole `Voldorium` folder to the Deck (USB
-   stick, SD card or network share), together with your disc dump (the `.gdi` and its track
-   files).
-2. In Desktop Mode, open Steam, choose **Games > Add a Non-Steam Game to My Library**, browse
-   to `Voldorium.exe` and add it.
-3. In the game's **Properties > Compatibility**, tick **Force the use of a specific Steam Play
-   compatibility tool** and pick a recent Proton.
-4. Start it. The first time, a file picker asks for your disc dump (the touchscreen works there),
-   the same as on Windows.
+- **Linux (native):** copy the unpacked Linux download and your disc dump (the `.gdi` and its
+  track files) to the Deck. In Desktop Mode, start `voldorium` once: it asks for the dump and
+  builds the game (SteamOS's desktop includes Python and kdialog). Then in Steam choose **Games
+  > Add a Non-Steam Game to My Library** and add `voldorium`.
+- **Windows, through Proton:** copy the Windows `Voldorium` folder (after its first start) and
+  your dump, add `Voldorium.exe` the same way, and in its **Properties > Compatibility** tick
+  **Force the use of a specific Steam Play compatibility tool** and pick a recent Proton. Tested
+  under Wine 10 (boot, menus, fights, and a lobby match against a Windows PC).
 
 The Deck's controls work as a controller (Steam Input). Its 1280x800 screen shows the game in
 16:9 with thin bars above and below: the game's picture is 16:9 on every screen, so that online
@@ -211,7 +239,8 @@ The project's own code is provided for personal, non-commercial use with a legal
 of the game. Third-party parts keep their own licenses:
 
 - GGPO: MIT (`third_party/ggpo/LICENSE`)
-- SDL2: zlib (linked at build time, shipped as `SDL2.dll`)
+- SDL2: zlib (linked at build time, shipped as `SDL2.dll`; on Linux the system's own)
+- Zig (MIT): the Linux builder downloads it at first start; it is not shipped
 - Flycast: GPL-2.0. Its sine table header (the SH-4 FSCA results, measured on the hardware)
   and its BIOS font are downloaded by the builder from Flycast's repository at a pinned commit,
   or taken from your own checkout, at build time; they are not stored here. The patches in

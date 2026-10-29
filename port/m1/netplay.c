@@ -1,4 +1,4 @@
-/* Online versus with GGPO (Windows; engines/ggpo, docs/phase4-ggpo-state.md).
+/* Online versus with GGPO (third_party/ggpo, docs/phase4-ggpo-state.md).
  *
  * M1_NET=local_port,player,remote_ip:remote_port[,delay]
  *   player 1 or 2 (port A or B), delay = local input delay in fights, in frames (default 2).
@@ -9,7 +9,8 @@
  * The game owns the frame loop, while GGPO wants to load a state and re-simulate frames from
  * inside its callbacks. So GGPO runs on a driver fiber of its own: the hook at the top of
  * main's loop (state.c, the save point) switches to the driver, and the driver runs a frame by
- * switching back to the game until the next hook. Loading a state while the game waits at the
+ * switching back to the game until the next hook. The driver is a fiber on Windows and a ucontext
+ * on Linux; both sides of a match run the same frames and exchange the same packets. Loading a state while the game waits at the
  * hook and then running frames is the rewind the SyncTest checks.
  *
  * Inputs: the button word of each player (Dreamcast bits, 1 = pressed). The Maple layer serves
@@ -42,6 +43,19 @@ u16 net_pads[2];
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
+#else
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#include <time.h>
+#include <ucontext.h>
+typedef int SOCKET;
+#define INVALID_SOCKET (-1)
+#define closesocket close
+#define Sleep(ms) usleep((ms) * 1000)
+#define CALLBACK
+#endif
 #include <stdbool.h>
 #include "ggponet.h"
 
@@ -60,7 +74,43 @@ static char peer_name[96];
 
 void online_return(const char *why);
 
+#ifdef _WIN32
 static void *game_fiber, *driver_fiber;
+static void to_game(void) { SwitchToFiber(game_fiber); }
+static void to_driver(void) { game_fiber = m1_fiber_current(); SwitchToFiber(driver_fiber); }
+#else
+static ucontext_t game_uc, driver_uc;
+static void *driver_fiber;	/* the driver's stack once started */
+static void to_game(void) { swapcontext(&driver_uc, &game_uc); }
+static void to_driver(void) { swapcontext(&game_uc, &driver_uc); }
+#endif
+
+/* milliseconds and seconds on a monotonic clock */
+static u32 now_ms(void)
+{
+#ifdef _WIN32
+	return GetTickCount();
+#else
+	struct timespec t;
+	clock_gettime(CLOCK_MONOTONIC, &t);
+	return (u32)((u64)t.tv_sec * 1000 + (u64)t.tv_nsec / 1000000);
+#endif
+}
+static double now_s(void)
+{
+#ifdef _WIN32
+	static LARGE_INTEGER freq;
+	LARGE_INTEGER c;
+	if (!freq.QuadPart)
+		QueryPerformanceFrequency(&freq);
+	QueryPerformanceCounter(&c);
+	return (double)c.QuadPart / (double)freq.QuadPart;
+#else
+	struct timespec t;
+	clock_gettime(CLOCK_MONOTONIC, &t);
+	return (double)t.tv_sec + (double)t.tv_nsec * 1e-9;
+#endif
+}
 static int prelude = -1;
 static int running, sleep_frames, delay = 2, menu_delay = 8, in_fight = -1;
 static u64 netframe, resims, rollbacks;
@@ -68,8 +118,8 @@ static u64 netframe, resims, rollbacks;
 /* window title: connection state, then ping, frames ahead and rollbacks once a second */
 static void show_status(void)
 {
-	static DWORD last;
-	const DWORD now = GetTickCount();
+	static u32 last;
+	const u32 now = now_ms();
 	if (now - last < 1000)
 		return;
 	last = now;
@@ -113,7 +163,7 @@ static void pool_put(void *b)
 static u64 sums[16];
 static int sum_frame[16];
 
-static void run_frame(void) { SwitchToFiber(game_fiber); }	/* back at the next loop top */
+static void run_frame(void) { to_game(); }	/* back at the next loop top */
 
 static bool __cdecl cb_begin(const char *game) { (void)game; return true; }
 static bool __cdecl cb_save(unsigned char **buffer, int *len, int *checksum, int frame)
@@ -180,18 +230,13 @@ static bool __cdecl cb_event(GGPOEvent *e)
 /* 60 Hz on the wall clock, giving GGPO the network while waiting */
 static void wait_next_frame(void)
 {
-	static LARGE_INTEGER freq, next;
-	if (!freq.QuadPart)
-	{
-		QueryPerformanceFrequency(&freq);
-		QueryPerformanceCounter(&next);
-	}
-	next.QuadPart += (LONGLONG)((double)freq.QuadPart / video_pace_hz());	/* 60, or 62 when VSync paces (render.c) */
+	static double next;
+	if (!next)
+		next = now_s();
+	next += 1.0 / video_pace_hz();	/* 60, or 62 when VSync paces (render.c) */
 	for (;;)
 	{
-		LARGE_INTEGER now;
-		QueryPerformanceCounter(&now);
-		const double left = (double)(next.QuadPart - now.QuadPart) / (double)freq.QuadPart;
+		const double now = now_s(), left = next - now;
 		if (left < -0.1)
 			next = now;	/* far behind: restart the schedule */
 		if (left <= 0)
@@ -200,19 +245,24 @@ static void wait_next_frame(void)
 	}
 }
 
+#ifdef _WIN32
 static void CALLBACK driver(void *arg)
 {
 	(void)arg;
+#else
+static void driver(void)
+{
+#endif
 	for (;;)
 	{
 		m1_check_watchdog();	/* the game's V Blank check does not run while this waits */
 		show_status();
 		if (!running)
 		{
-			static DWORD since;
+			static u32 since;
 			if (!since)
-				since = GetTickCount();
-			if (prelude && GetTickCount() - since > 20000)	/* a lobby match that never connects */
+				since = now_ms();
+			if (prelude && now_ms() - since > 20000)	/* a lobby match that never connects */
 			{
 				online_return("Could not connect. Check your firewall.");
 			}
@@ -274,9 +324,11 @@ static void start(void)
 		menu_delay = atoi(getenv("M1_NET_MENU_DELAY"));
 	if (menu_delay < 1)
 		menu_delay = 1;	/* lockstep needs at least one frame of input delay */
+#ifdef _WIN32
 	WSADATA wsa;
 	if (WSAStartup(MAKEWORD(2, 2), &wsa))	/* GGPO expects the application to start Winsock */
 		m1_stop("net: WSAStartup failed");
+#endif
 	if (getenv("M1_NET_RELAY"))
 	{
 		/* through the lobby server's relay (online.c): register this game port with the match's
@@ -287,9 +339,9 @@ static void start(void)
 			SOCKET s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
 			struct sockaddr_in me = { 0 }, relay = { 0 };
 			me.sin_family = AF_INET;
-			me.sin_port = htons((u_short)lport);
+			me.sin_port = htons((unsigned short)lport);
 			relay.sin_family = AF_INET;
-			relay.sin_port = htons((u_short)rport);
+			relay.sin_port = htons((unsigned short)rport);
 			inet_pton(AF_INET, host, &relay.sin_addr);
 			if (s != INVALID_SOCKET && !bind(s, (struct sockaddr *)&me, sizeof(me)))
 			{
@@ -333,9 +385,19 @@ static void start(void)
 	printf("net: player %u on port %u, peer %s:%u, input delay %d in fights, %d elsewhere\n", player, lport, host, rport,
 		   delay, menu_delay);
 	fflush(stdout);
+#ifdef _WIN32
 	driver_fiber = CreateFiberEx(64 << 10, 4u << 20, 0, driver, 0);
 	if (!driver_fiber)
 		m1_stop("net: CreateFiberEx failed");
+#else
+	if (!(driver_fiber = malloc(4u << 20)))
+		m1_stop("net: no memory for the driver's stack");
+	getcontext(&driver_uc);
+	driver_uc.uc_stack.ss_sp = driver_fiber;
+	driver_uc.uc_stack.ss_size = 4u << 20;
+	driver_uc.uc_link = 0;
+	makecontext(&driver_uc, driver, 0);
+#endif
 }
 
 /* the scripted boot of a lobby match: Start through the title and notices, DOWN to VS BATTLE in
@@ -474,10 +536,9 @@ void netplay_hook(SH4 *c)
 		booting = 0;
 		m1_resim = 0;
 	}
-	game_fiber = m1_fiber_current();
 	if (!driver_fiber)
 		start();
-	SwitchToFiber(driver_fiber);	/* back here when the driver runs the next frame */
+	to_driver();	/* back here when the driver runs the next frame */
 }
 
 void netplay_report(FILE *f)
@@ -486,7 +547,3 @@ void netplay_report(FILE *f)
 		fprintf(f, "net: %llu frames, %llu rollbacks, %llu re-simulated frames\n", (unsigned long long)netframe,
 				(unsigned long long)rollbacks, (unsigned long long)resims);
 }
-#else
-void netplay_hook(SH4 *c) { (void)c; }
-void netplay_report(FILE *f) { (void)f; }
-#endif

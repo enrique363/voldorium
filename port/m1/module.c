@@ -9,6 +9,13 @@
 #else
 #include <dlfcn.h>
 #include <unistd.h>
+#include <signal.h>
+#include <spawn.h>
+#include <sys/wait.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <SDL2/SDL.h>
+extern char **environ;
 #endif
 #include <stdio.h>
 #include <stdlib.h>
@@ -137,7 +144,118 @@ int module_build(const char *gdi)
 	printf("module: the builder finished with code %lu\n", (unsigned long)code);
 	return code == 0;
 #else
-	(void)gdi;
+	/* Linux: builder/first_run.sh, in a terminal window when one can be found (konsole, GNOME
+	   Terminal, xterm; or inline when started from a terminal), else unseen with its output in
+	   builder/work/build.log. The script writes work/first_run.pid while it runs and
+	   work/first_run.result at the end; some terminals return at once, so that is what is waited on. */
+	char dir[1024], sh[1100], pidf[1100], resf[1100], logf[1100];
+	const ssize_t n = readlink("/proc/self/exe", dir, sizeof(dir) - 32);
+	dir[n > 0 ? n : 0] = 0;
+	char *slash = strrchr(dir, '/');
+	if (slash)
+		*slash = 0;
+	snprintf(sh, sizeof(sh), "%s/builder/first_run.sh", dir);
+	snprintf(pidf, sizeof(pidf), "%s/builder/work/first_run.pid", dir);
+	snprintf(resf, sizeof(resf), "%s/builder/work/first_run.result", dir);
+	snprintf(logf, sizeof(logf), "%s/builder/work/build.log", dir);
+	if (access(sh, R_OK))
+	{
+		printf("module: no builder at %s\n", sh);
+		return 0;
+	}
+	if (!getenv("M1_BUILD_YES"))
+	{
+		const SDL_MessageBoxButtonData buttons[] = {
+			{ SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Build it" },
+			{ SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "Cancel" },
+		};
+		const SDL_MessageBoxData box = { SDL_MESSAGEBOX_INFORMATION, 0, "Voldorium: first start",
+			"Voldorium builds the game from your own disc dump the first time it starts, and after an update. "
+			"It takes a few minutes, once.\n\n"
+			"It downloads, from their official sites, each checked against a fixed SHA-256:\n"
+			"  - the compiler (Zig, about 50 MB)\n"
+			"  - two small files from Flycast (the SH-4 sine table and the BIOS font)\n\n"
+			"It needs Python 3 (python3), which most Linux systems have.\n\n"
+			"Nothing of the game is downloaded: its code is translated from your disc, on this PC.\n\n"
+			"Build it now?", 2, buttons, 0 };
+		int choice = -1;
+		if (SDL_ShowMessageBox(&box, &choice) == 0 && choice != 1)
+			return 0;
+		if (choice < 0)
+			printf("module: no message box (%s): building without asking\n", SDL_GetError());
+	}
+	char work[1100];
+	snprintf(work, sizeof(work), "%s/builder/work", dir);
+	mkdir(work, 0755);
+	unlink(resf);
+	unlink(pidf);
+	const int tty = isatty(0) && isatty(1);
+	char *terms[][8] = {
+		{ "konsole", "--nofork", "-e", "sh", sh, (char *)gdi, dir, 0 },
+		{ "gnome-terminal", "--wait", "--", "sh", sh, (char *)gdi, dir, 0 },
+		{ "xterm", "-e", "sh", sh, (char *)gdi, dir, 0 },
+	};
+	char *inline_argv[] = { "sh", sh, (char *)gdi, dir, 0 };
+	pid_t pid = 0;
+	for (int i = 0; !tty && i < 3 && !pid; i++)
+		if (posix_spawnp(&pid, terms[i][0], 0, 0, terms[i], environ))
+			pid = 0;
+		else
+			printf("module: building it in %s\n", terms[i][0]);
+	if (!pid)
+	{
+		/* inline (started from a terminal) or unseen: the output goes to the terminal or the log */
+		posix_spawn_file_actions_t fa;
+		posix_spawn_file_actions_init(&fa);
+		if (!tty)
+		{
+			posix_spawn_file_actions_addopen(&fa, 1, logf, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+			posix_spawn_file_actions_adddup2(&fa, 1, 2);
+			printf("module: building it, the output in %s\n", logf);
+		}
+		if (posix_spawn(&pid, "/bin/sh", &fa, 0, inline_argv, environ))
+			pid = 0;
+		posix_spawn_file_actions_destroy(&fa);
+		if (!pid)
+		{
+			printf("module: cannot start the builder\n");
+			return 0;
+		}
+	}
+	fflush(stdout);
+	/* until the result is written, or the script (or the terminal, when it carried the script) is gone */
+	int status, terminal_done = 0, waited = 0;
+	for (;;)
+	{
+		FILE *f = fopen(resf, "r");
+		if (f)
+		{
+			char r[16] = "";
+			if (!fgets(r, sizeof(r), f))
+				r[0] = 0;
+			fclose(f);
+			printf("module: the builder finished: %s", r);
+			if (!terminal_done)
+				waitpid(pid, &status, WNOHANG);
+			return !strncmp(r, "ok", 2);
+		}
+		if (!terminal_done && waitpid(pid, &status, WNOHANG) == pid)
+			terminal_done = 1;
+		f = fopen(pidf, "r");
+		int spid = 0;
+		if (f)
+		{
+			if (fscanf(f, "%d", &spid) != 1)
+				spid = 0;
+			fclose(f);
+		}
+		if (spid > 0 && kill(spid, 0) && access(resf, F_OK))
+			break;	/* the script was stopped (its window closed) */
+		if (terminal_done && !spid && ++waited > 100)
+			break;	/* the terminal ended without ever running the script */
+		usleep(100000);
+	}
+	printf("module: the builder stopped without finishing\n");
 	return 0;
 #endif
 }

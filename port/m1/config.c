@@ -33,6 +33,9 @@
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#else
+#include <unistd.h>
+#include <SDL2/SDL.h>
 #endif
 
 void gd_open(const char *path, u32 lba);
@@ -49,7 +52,10 @@ static void find_exe_dir(void)
 #ifdef _WIN32
 	GetModuleFileNameA(0, exe_dir, sizeof(exe_dir));
 #else
-	snprintf(exe_dir, sizeof(exe_dir), "./x");
+	const ssize_t n = readlink("/proc/self/exe", exe_dir, sizeof(exe_dir) - 1);
+	exe_dir[n > 0 ? n : 0] = 0;
+	if (n <= 0)
+		snprintf(exe_dir, sizeof(exe_dir), "./x");
 #endif
 	char *slash = strrchr(exe_dir, '\\');
 	char *slash2 = strrchr(exe_dir, '/');
@@ -324,6 +330,47 @@ static int pick_disc(void)
 	config_save();
 	return 1;
 }
+#else
+/* the first start (or a disc dump that moved): the desktop's file picker for the .gdi (zenity on
+   GNOME and most others, kdialog on KDE and the Steam Deck), remembered in voldorium.ini; without
+   either, a message saying where to put the path. Returns 0 when cancelled. */
+static int pick_disc(void)
+{
+	static const char *const pickers[][2] = {
+		{ "zenity", "zenity --file-selection --title='Choose your game disc dump (the .gdi file)' "
+					"--file-filter='Dreamcast disc dump (*.gdi) | *.gdi *.GDI' 2>/dev/null" },
+		{ "kdialog", "kdialog --title 'Choose your game disc dump (the .gdi file)' --getopenfilename ~ "
+					 "'Dreamcast disc dump (*.gdi *.GDI)' 2>/dev/null" },
+	};
+	for (unsigned i = 0; i < sizeof(pickers) / sizeof(pickers[0]); i++)
+	{
+		char probe[64];
+		snprintf(probe, sizeof(probe), "command -v %s >/dev/null 2>&1", pickers[i][0]);
+		if (system(probe))
+			continue;
+		FILE *p = popen(pickers[i][1], "r");
+		char file[1024] = "";
+		if (!p)
+			continue;
+		if (!fgets(file, sizeof(file), p))
+			file[0] = 0;
+		pclose(p);
+		file[strcspn(file, "\r\n")] = 0;
+		if (!file[0])
+			return 0;	/* cancelled */
+		config_set("game", "disc", file);
+		config_save();
+		return 1;
+	}
+	char msg[1400];
+	snprintf(msg, sizeof(msg), "Voldorium needs your own disc dump of SoulCalibur (USA), the .gdi file with its tracks.\n\n"
+			 "Put its path in %s, under [game]:\n  disc = /path/to/soulcalibur.gdi\n\n"
+			 "or start Voldorium with --disc /path/to/soulcalibur.gdi.\n"
+			 "(With zenity or kdialog installed, a file picker opens here instead.)", ini_path);
+	if (SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, "Voldorium: choose your disc dump", msg, 0))
+		fprintf(stderr, "%s\n", msg);
+	return 0;
+}
 #endif
 
 static int file_exists(const char *p)
@@ -353,13 +400,6 @@ int config_start(int argc, char **argv, const char **ranges)
 	}
 	else
 	{
-#ifndef _WIN32
-		if (argc < 2)
-		{
-			fprintf(stderr, "usage: m1 <sc folder> [seconds] | m1 --disc file.gdi [--host port | --join address:port]\n");
-			exit(2);
-		}
-#endif
 		for (int i = 1; i < argc; i++)
 		{
 			const char *a = argv[i], *next = i + 1 < argc ? argv[i + 1] : 0;
@@ -389,14 +429,12 @@ int config_start(int argc, char **argv, const char **ranges)
 				env_default("M1_NET_OPPONENT", next), i++;
 		}
 		const char *disc = config_get("game", "disc");
-#ifdef _WIN32
 		if (!disc || !*disc || !file_exists(disc))
 		{
 			if (!pick_disc())
 				exit(0);
 			disc = config_get("game", "disc");
 		}
-#endif
 		if (!disc)
 			m1_fatal("No disc: pass --disc <file.gdi> or set [game] disc in %s", ini_path);
 		snprintf(gdi_path, sizeof(gdi_path), "%s", disc);
