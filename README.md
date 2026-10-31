@@ -149,7 +149,8 @@ or folder names in them), which is what the online lobby needs to match players.
 | `could not download ...` | Check the internet connection (or a firewall or proxy) and run the builder again. |
 | `does not match its pinned SHA-256` | The download was damaged or changed. Delete the `toolchain` folder and run the builder again; if it keeps happening, open an issue. |
 | Windows SmartScreen warns about the `.bat` | It is a plain text script: right-click it, **Edit**, to read it first. Then **More info**, **Run anyway**. |
-| Antivirus removes `Voldorium.exe` | A freshly compiled, unsigned program can trip heuristics. Allow it, or exclude the folder. |
+| Windows Defender quarantines `Voldorium.exe` as a Trojan ("executes commands from an attacker", often `Trojan:Win32/Wacatac` with `!ml`) | A known false positive. Each new version is an unsigned program Microsoft has not seen yet, and its first start runs a script that downloads the compiler and builds a DLL, which Defender's machine-learning check reads as a malware loader. In Windows Security > Virus & threat protection > **Protection history**, open the item and choose **Actions > Allow on device**. Only do this for a copy from this repository's Releases or one you built yourself. Reports to Microsoft ([submit as "Incorrectly detected"](https://www.microsoft.com/wdsi/filesubmission)) help clear it for everyone. |
+| Another antivirus removes `Voldorium.exe` | The same false positive: allow it, or exclude the Voldorium folder. |
 | Online Versus does not find a friend | Both of you must build the same release (the version is in the main menu corner). |
 
 ### By hand (developers)

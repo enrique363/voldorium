@@ -116,6 +116,16 @@ about the same time (the session begins at boot):
 7000 in their router / firewall. Menus run in lockstep ("menu_delay" in voldorium.ini sets their
 input delay, raise it on long distances); fights use rollback with --delay frames (default 2).
 
+Windows Defender says Trojan
+----------------------------
+Defender may quarantine Voldorium.exe as a Trojan ("executes commands from an attacker"). It is a
+known false positive: each new version is an unsigned program Microsoft has not seen yet, and
+its first start runs a script that downloads the compiler and builds a DLL, which Defender's
+automatic check takes for a malware loader. If your copy comes from the project's GitHub
+Releases (or you built it yourself): Windows Security > Virus & threat protection > Protection
+history, open the item, Actions > Allow on device. Reporting it to Microsoft as "Incorrectly
+detected" (microsoft.com/wdsi/filesubmission) helps clear it for everyone.
+
 m1_log.txt (next to the executable) is the log. During an online session it has a line every
 60 frames like "net: frame 1250 checksum 1a2b3c..."; the two players' lines for the same frame
 must match. If they do not, keep both logs: that is a desync report.
