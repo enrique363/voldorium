@@ -511,6 +511,10 @@ int video_enabled(void)
 		return 0;
 	SDL_SetHint(SDL_HINT_WINDOWS_INTRESOURCE_ICON, "1");	/* the window shows the executable's icon (m1/voldorium.rc) */
 	SDL_SetHint(SDL_HINT_WINDOWS_INTRESOURCE_ICON_SMALL, "1");
+	/* the screen's real pixels: without this, Windows display scaling (125%, 150%...) shrinks
+	   the desktop the game sees (1920x1080 at 150% looks like 1280x720) and stretches the
+	   smaller picture back up */
+	SDL_SetHint(SDL_HINT_WINDOWS_DPI_AWARENESS, "permonitorv2");
 	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER) != 0)
 		return video_fail("SDL");
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
@@ -542,6 +546,15 @@ int video_enabled(void)
 		return video_fail("OpenGL functions");
 	vsync_apply();	/* frames are paced by the emulated V Blank; VSync only times the swap */
 	printf("video: %s / %s\n", glGetString(GL_RENDERER), glGetString(GL_VERSION));
+	{
+		int dw, dh;
+		display_size(&dw, &dh);
+#ifdef _WIN32
+		printf("video: display %dx%d, %s\n", dw, dh, IsProcessDPIAware() ? "DPI aware" : "scaled by Windows");
+#else
+		printf("video: display %dx%d\n", dw, dh);
+#endif
+	}
 	glGetIntegerv(GL_MAX_SAMPLES, &max_samples);
 	prog = glCreateProgram();
 	glAttachShader(prog, shader(GL_VERTEX_SHADER, vs_src));

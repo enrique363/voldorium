@@ -2,6 +2,16 @@
 
 All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); see the README.
 
+## 1.1.3 (2026-10-31)
+
+### Fixed
+- **Windows display scaling shrank the game's resolution** (enrique363/voldorium#5): with the
+  display scale above 100% (Settings > System > Display > Scale, often 150% on TVs), Windows
+  told Voldorium the screen was smaller than it is (a 1920 x 1080 TV at 150% looked like
+  1280 x 720), so GRAPHICS offered nothing above that and the picture was drawn small and
+  stretched up. Voldorium now handles scaling itself (DPI aware): it sees the screen's real
+  resolution and draws at it. The log says what it sees (`video: display 1920x1080, DPI aware`).
+
 ## 1.1.2 (2026-10-29)
 
 ### Added
