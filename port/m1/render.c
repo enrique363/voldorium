@@ -853,7 +853,8 @@ static void screenshot(u64 n, int w, int h)
  * proportions from the game's g_aspect_scale_x = 0.75 (hw.c), so it is drawn full width
  * (Hor+). Flat (constant-depth) polygons drawn by known 2D code are compressed by 0.75 about
  * an anchor: in a fight the HUD and battle text by their position (centre x below 280 -> 0,
- * above 360 -> 640, else centre 320; text by the extent of its whole run of glyphs, so one string
+ * above 360 -> 640, else centre 320; [video] hud = middle / 4:3 move the sides in, side_anchor;
+ * text by the extent of its whole run of glyphs, so one string
  * is never split between anchors; pieces inside a window, such as the practice menus, take the
  * window's anchor); on all other screens about the centre (pillarbox). Untextured full-width
  * fills stretch. Tiled layers (menu_bg_scroll_draw: the menu wallpaper, which wraps every 1024
@@ -958,6 +959,34 @@ static void fight_panels(const TaCtx *c)
 	}
 }
 
+/* where fight HUD pieces left or right of centre go ([video] hud, M1_HUD, GRAPHICS menu): edges
+   (to the screen's sides; without the setting, so an older voldorium.ini keeps its look),
+   middle (halfway) or 4:3 (where the original 4:3 picture has them, about the centre; new
+   installs, player/voldorium.ini). Drawing only: each player chooses their own, online too */
+static int hud_mode = -1;	/* 0 edges, 1 middle, 2 4:3 */
+int video_hud(void)
+{
+	if (hud_mode < 0)
+	{
+		const char *e = getenv("M1_HUD");
+		hud_mode = e && !strcmp(e, "middle") ? 1 : e && !strcmp(e, "4:3") ? 2 : 0;
+	}
+	return hud_mode;
+}
+void video_next_hud(void)
+{
+	static const char *const names[3] = { "edges", "middle", "4:3" };
+	hud_mode = (video_hud() + 1) % 3;
+	config_set("video", "hud", names[hud_mode]);
+	config_save();
+	setting_env("M1_HUD", names[hud_mode]);
+}
+static float side_anchor(float cx)
+{
+	static const float left[3] = { 0, 160, 320 };
+	return cx < 280 ? left[video_hud()] : cx > 360 ? 640 - left[video_hud()] : 320;
+}
+
 /* the anchor of the largest panel around (x, y) (a margin takes in the panels' corner pieces),
    or -1 */
 static float panel_anchor(float x, float y)
@@ -972,7 +1001,7 @@ static float panel_anchor(float x, float y)
 		if (area > best)
 		{
 			const float cx = (r[0] + r[1]) / 2;
-			best = area, a = cx < 280 ? 0 : cx > 360 ? 640 : 320;
+			best = area, a = side_anchor(cx);
 		}
 	}
 	return a;
@@ -1032,7 +1061,7 @@ static void wide_map(const TaCtx *c, const TaPoly *p, float *xa, float *xk, floa
 		const u32 i = (u32)(p - c->p);
 		if (p->cls == M1_2D_PRIM && i < run_cap && run_of[i] != ~0u)
 			cx = (run_x0[run_of[i]] + run_x1[run_of[i]]) / 2;
-		*xa = cx < 280 ? 0 : cx > 360 ? 640 : 320;
+		*xa = side_anchor(cx);
 		const float pa = panel_anchor(cx, (y0 + y1) / 2);
 		if (pa >= 0)
 			*xa = pa;	/* part of a window: the window's anchor */

@@ -202,6 +202,7 @@ static void apply_settings(void)
 	env_default("M1_WINDOW", config_get("video", "window"));
 	env_default("M1_RESOLUTION", config_get("video", "resolution"));
 	env_default("M1_BGMODE", config_get("video", "backgrounds"));
+	env_default("M1_HUD", config_get("video", "hud"));	/* edges, middle or 4:3 (render.c) */
 	env_default("M1_ARTDUMP", config_get("debug", "artdump"));
 	if ((v = config_get("game", "loading")) && !strcmp(v, "fast"))
 		env_default("M1_GDINSTANT", "1");	/* hle.c */

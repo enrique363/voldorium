@@ -191,7 +191,8 @@ game.
 Run `Voldorium.exe` from the player folder. The first time, it asks for your disc dump (the
 `.gdi` file) and remembers it in `voldorium.ini`. It starts full screen at your desktop's
 resolution; the main menu's **GRAPHICS** entry changes resolution, full screen,
-anti-aliasing, VSync and loading speed (original or fast). Controllers and keyboard go through SDL2.
+anti-aliasing, VSync, where the fight HUD sits (as in the original 4:3 game by default, halfway
+out, or at the screen's edges) and loading speed (original or fast). Controllers and keyboard go through SDL2.
 
 **Online Versus** is on the main menu. It lists players around the world (and on your local
 network) who are searching with the same build. Pick one to challenge; the other player sees
@@ -200,7 +201,7 @@ your ping and accepts or declines. Players are shown as OPPONENT unless they set
 built from the same sources: the lobby only matches identical builds.
 
 Settings (`voldorium.ini`): `[video] fullscreen, resolution, window, msaa, backgrounds`
-(`stretch`, `blur` or `replace`), `[net] lobby, name`, `[game] disc, vmu, loading` (`original` or `fast`). More detail is in
+(`stretch`, `blur` or `replace`), `hud` (`4:3`, `middle` or `edges`), `[net] lobby, name`, `[game] disc, vmu, loading` (`original` or `fast`). More detail is in
 `port/README.md` and in the README.txt of the player folder.
 
 ## Steam Deck

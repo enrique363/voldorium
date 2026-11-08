@@ -24,7 +24,9 @@ viewer L / R change pictures (the D-pad moves the picture).
 The game starts full screen at your monitor's resolution. GRAPHICS in the main menu (under
 OPTIONS) switches between full screen and a window, sets the resolution the game is drawn at
 (native or a 16:9 size up to your monitor's), anti-aliasing (off, 2x, 4x, 8x), VSync (see
-below) and loading (ORIGINAL: the disc loads as fast as the Dreamcast's drive, as on the
+below), the fight HUD (4:3, the default: life bars and names where the original 4:3 game has
+them; MIDDLE: halfway out; EDGES: at the sides of the 16:9 screen; only your own screen
+changes, also online) and loading (ORIGINAL: the disc loads as fast as the Dreamcast's drive, as on the
 console; FAST: instantly, so the VS screen before a fight is cut short; online matches always
 load at the original speed); changes apply at once and are saved in voldorium.ini. Alt+Enter or F11: full screen on/off. Esc: quit (during an online match: leave it and go back to the main menu; if a match is cut off, both players return there).
 

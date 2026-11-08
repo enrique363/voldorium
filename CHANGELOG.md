@@ -2,6 +2,17 @@
 
 All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); see the README.
 
+## 1.1.4 (2026-11-08)
+
+### Added
+- **Fight HUD placement** (enrique363/voldorium#7): GRAPHICS > HUD and `[video] hud` in
+  `voldorium.ini`. 4:3 places the life bars, names and round markers as in the original 4:3
+  game, close together in the middle; MIDDLE moves them halfway out; EDGES puts them at the sides
+  of the 16:9 screen, as in earlier versions. New installs start with 4:3; a `voldorium.ini`
+  carried over from an earlier version keeps EDGES until you change it. Only the HUD moves (it is
+  never stretched in any mode), and only on your own screen: online opponents can use different
+  settings.
+
 ## 1.1.3 (2026-10-31)
 
 ### Fixed
