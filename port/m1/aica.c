@@ -967,6 +967,36 @@ static void dsp_mix(float *l, float *r)
 	}
 }
 
+/* [audio] volume (M1_VOLUME, percent, 0-200; GRAPHICS menu): output only, never the game's state */
+static int volume_pct = -1;
+void config_set(const char *section, const char *key, const char *value);
+void config_save(void);
+int audio_volume(void)
+{
+	if (volume_pct < 0)
+	{
+		const char *e = getenv("M1_VOLUME");
+		volume_pct = e ? atoi(e) : 100;
+		volume_pct = volume_pct < 0 ? 0 : volume_pct > 200 ? 200 : volume_pct;
+	}
+	return volume_pct;
+}
+void audio_next_volume(void)
+{
+	const int v = audio_volume();
+	const int next = v >= 100 ? 0 : (v / 25 + 1) * 25;	/* 0, 25, 50, 75, 100, then off */
+	char s[8];
+	snprintf(s, sizeof(s), "%d", next);
+	config_set("audio", "volume", s);
+	config_save();
+#ifdef _WIN32
+	_putenv_s("M1_VOLUME", s);
+#else
+	setenv("M1_VOLUME", s, 1);
+#endif
+	volume_pct = next;
+}
+
 static void sample(void)
 {
 	static int per_sample = -1;	/* M1_ARMRATE: ARM instructions per output sample */
@@ -1001,9 +1031,7 @@ static void sample(void)
 	}
 	else
 		memset(dsp.mixs, 0, sizeof(dsp.mixs));
-	static float volume = -1;	/* M1_VOLUME: output volume in percent ([audio] volume) */
-	if (volume < 0)
-		volume = getenv("M1_VOLUME") ? (float)atof(getenv("M1_VOLUME")) / 100.0f : 1.0f;
+	const float volume = audio_volume() / 100.0f;
 	const float mv = level_gain[rg(R_MVOL) & 15] * ((rg(R_MVOL) >> 8) & 1 ? 0.25f : 1.0f) * volume;	/* DAC18B: 18-bit output */
 	l *= mv;
 	r *= mv;

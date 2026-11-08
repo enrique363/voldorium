@@ -58,7 +58,7 @@ void online_menu(SH4 *c, void (*f)(SH4 *));
 #define POOL_N 6
 #define ID_BACK 21			/* TO MAIN MENU */
 /* values of the lobby's action entries (the game's own go up to 0x13) */
-enum { V_PEER = 0x40, V_CANCEL = 0x48, V_ACCEPT, V_DECLINE, V_STATUS, V_G_DISPLAY = 0x50, V_G_RES, V_G_AA, V_G_VSYNC, V_G_LOADING, V_G_HUD };	/* V_STATUS: a status line (selecting it does nothing; a disabled line would show "Not available in this version.") */
+enum { V_PEER = 0x40, V_CANCEL = 0x48, V_ACCEPT, V_DECLINE, V_STATUS, V_G_DISPLAY = 0x50, V_G_RES, V_G_AA, V_G_VSYNC, V_G_LOADING, V_G_HUD, V_G_BG, V_G_TEXT, V_G_VOLUME, V_G_MORE, V_G_FIRST };	/* V_STATUS: a status line (selecting it does nothing; a disabled line would show "Not available in this version.") */
 
 static void put32(u32 a, u32 v) { memcpy(&sh4_ram[a & 0xffffff], &v, 4); }
 static void put16(u32 a, u16 v) { memcpy(&sh4_ram[a & 0xffffff], &v, 2); }
@@ -94,7 +94,7 @@ static void patch_main(void)
 	put_str(S_LABEL, "ONLINE VERSUS");
 	put_str(S_HELP, "Fight players around the world.");
 	put_str(S_GLABEL, "GRAPHICS");
-	put_str(S_GHELP, "Resolution, full screen and anti-aliasing.");
+	put_str(S_GHELP, "Display, sound and other settings.");
 	set_help(ID_INTERNET, S_HELP);
 	/* the main menu rebuilt in scratch RAM: entry 10 (INTERNET) becomes ONLINE VERSUS at index 2,
 	   a copy of it GRAPHICS at index 11, both submenu entries like MUSEUM */
@@ -965,11 +965,34 @@ int loading_fast(void);
 void loading_next(void);
 int video_hud(void);
 void video_next_hud(void);
+int video_backgrounds(void);
+void video_next_backgrounds(void);
+int video_text_sharp(void);
+void video_next_text(void);
+int audio_volume(void);
+void audio_next_volume(void);
+
+/* two pages: the game's menu has room for six lines and TO MAIN MENU (ID_POOL, POOL_N) */
+static int gpage, gpage_moved;
 
 static void build_graphics(u32 cur)
 {
 	nlines = 0;
 	char l[32];
+	if (gpage)
+	{
+		static const char *const bg[3] = { "BACKGROUNDS BLUR", "BACKGROUNDS REPLACE", "BACKGROUNDS STRETCH" };
+		line(loading_fast() ? "LOADING FAST" : "LOADING ORIGINAL", "Original: Dreamcast disc speed. Fast: instant.", V_G_LOADING, 1);
+		line(bg[video_backgrounds()], "4:3 menu pictures: stretched, or blurred sides.", V_G_BG, 1);
+		line(video_text_sharp() ? "TEXT SHARP" : "TEXT SMOOTH", "Menu text: smooth edges, or original pixels.", V_G_TEXT, 1);
+		const int vol = audio_volume();
+		if (vol)
+			snprintf(l, sizeof(l), "VOLUME %d", vol);
+		line(vol ? l : "VOLUME OFF", "Sound volume. Select to change it.", V_G_VOLUME, 1);
+		line("BACK", "Display, resolution, anti-aliasing, HUD.", V_G_FIRST, 1);
+	}
+	else
+	{
 	line(video_is_fullscreen() ? "FULL SCREEN" : "WINDOW", "Display: full screen or a window. Select to switch.", V_G_DISPLAY, 1);
 	video_resolution_label(l, sizeof(l));
 	line(l, "Resolution the game draws at. Select to change.", V_G_RES, 1);
@@ -979,13 +1002,17 @@ static void build_graphics(u32 cur)
 	line(video_vsync() ? "VSYNC ON" : "VSYNC OFF", "On: no tearing. Off: lowest input delay.", V_G_VSYNC, 1);
 	static const char *const hud[3] = { "HUD EDGES", "HUD MIDDLE", "HUD 4:3" };
 	line(hud[video_hud()], "Fight HUD: at the edges, halfway, or as in 4:3."	/* no wider than the others: text reaching the screen's sides reads as a 4:3 picture (render.c) */, V_G_HUD, 1);
-	line(loading_fast() ? "LOADING FAST" : "LOADING ORIGINAL", "Original: Dreamcast disc speed. Fast: instant.", V_G_LOADING, 1);
+	line("MORE SETTINGS", "Loading, backgrounds, text and volume.", V_G_MORE, 1);
+	}
 	line("TO MAIN MENU", "", 0, 2);
 	for (int k = nlines; k < POOL_N; k++)
 		put16(AVAIL + (u32)(ID_POOL + k) * 4, 0);
 	put32(MENUS + 0x14, (u32)nlines);
-	if (get32(cur) == 1 && get32(cur + 4) >= (u32)nlines)
+	if (get32(cur) == 1 && gpage_moved)
+		put32(cur + 4, gpage ? 0 : 5);	/* the other page: its first line, or back onto MORE SETTINGS */
+	else if (get32(cur) == 1 && get32(cur + 4) >= (u32)nlines)
 		put32(cur + 4, 0);
+	gpage_moved = 0;
 }
 
 static void graphics_choose(int v)
@@ -1002,6 +1029,17 @@ static void graphics_choose(int v)
 		loading_next();
 	else if (v == V_G_HUD)
 		video_next_hud();
+	else if (v == V_G_BG)
+		video_next_backgrounds();
+	else if (v == V_G_TEXT)
+		video_next_text();
+	else if (v == V_G_VOLUME)
+		audio_next_volume();
+	else if (v == V_G_MORE || v == V_G_FIRST)
+	{
+		gpage = v == V_G_MORE;
+		gpage_moved = 1;
+	}
 }
 
 static void lobby_choose(int v)
@@ -1166,6 +1204,7 @@ void online_menu(SH4 *c, void (*f)(SH4 *))
 		if (get32(cur) == 0)
 		{
 			const u32 e = get32(cur + 4);
+			gpage = 0;	/* GRAPHICS opens on its first page */
 			use_slot(e == ONLINE_INDEX ? SLOT_LOBBY : e == GRAPHICS_INDEX ? SLOT_GRAPHICS : SLOT_MUSEUM);
 			set_help(ID_INTERNET, e == GRAPHICS_INDEX ? S_GHELP : S_HELP);	/* the two share an id */
 		}
@@ -1197,7 +1236,7 @@ void online_menu(SH4 *c, void (*f)(SH4 *))
 		c->r[0] = 0x12;
 		lobby_choose((int)v);
 	}
-	else if (slot_kind == SLOT_GRAPHICS && v >= V_G_DISPLAY && v <= V_G_HUD)
+	else if (slot_kind == SLOT_GRAPHICS && v >= V_G_DISPLAY && v <= V_G_FIRST)
 	{
 		put32(cur + 0x28, 0);
 		c->r[0] = 0x12;

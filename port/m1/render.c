@@ -231,6 +231,7 @@ static int res_w, res_h, msaa, max_samples = 8;
 
 void config_set(const char *section, const char *key, const char *value);
 void config_save(void);
+int video_text_sharp(void);
 
 static void video_settings_load(void)
 {
@@ -637,6 +638,7 @@ static void load_keymap(void)
 
 void config_set(const char *section, const char *key, const char *value);
 void config_save(void);
+int video_text_sharp(void);
 
 void video_poll(void)
 {
@@ -793,9 +795,7 @@ static void set_state(const TaPoly *p, int list)
 	   shapes stay the same size with smooth edges; punch-through then keeps texels at least half
 	   opaque, as the filtered edges fall between the two. M1_SMOOTH2D=0 ([video] text = sharp):
 	   off. */
-	static int smooth = -1;
-	if (smooth < 0)
-		smooth = !getenv("M1_SMOOTH2D") || atoi(getenv("M1_SMOOTH2D"));
+	const int smooth = !video_text_sharp();
 	int hi = 1;
 	unsigned rep;
 	if ((rep = tex_get_rep(p->tcw, tsp)))
@@ -959,17 +959,17 @@ static void fight_panels(const TaCtx *c)
 	}
 }
 
-/* where fight HUD pieces left or right of centre go ([video] hud, M1_HUD, GRAPHICS menu): edges
-   (to the screen's sides; without the setting, so an older voldorium.ini keeps its look),
-   middle (halfway) or 4:3 (where the original 4:3 picture has them, about the centre; new
-   installs, player/voldorium.ini). Drawing only: each player chooses their own, online too */
+/* where fight HUD pieces left or right of centre go ([video] hud, M1_HUD, GRAPHICS menu): 4:3
+   (where the original 4:3 picture has them, about the centre; the default, also for a
+   voldorium.ini without the setting), middle (halfway) or edges (to the screen's sides).
+   Drawing only: each player chooses their own, online too */
 static int hud_mode = -1;	/* 0 edges, 1 middle, 2 4:3 */
 int video_hud(void)
 {
 	if (hud_mode < 0)
 	{
 		const char *e = getenv("M1_HUD");
-		hud_mode = e && !strcmp(e, "middle") ? 1 : e && !strcmp(e, "4:3") ? 2 : 0;
+		hud_mode = e && !strcmp(e, "middle") ? 1 : e && !strcmp(e, "edges") ? 0 : 2;	/* default 4:3 */
 	}
 	return hud_mode;
 }
@@ -981,6 +981,45 @@ void video_next_hud(void)
 	config_save();
 	setting_env("M1_HUD", names[hud_mode]);
 }
+/* [video] backgrounds (M1_BGMODE): 0 blur, 1 replace, 2 stretch (default); see side_fill */
+static int bg_mode = -1;
+int video_backgrounds(void)
+{
+	if (bg_mode < 0)
+	{
+		const char *m = getenv("M1_BGMODE");
+		bg_mode = m && !strcmp(m, "replace") ? 1 : m && !strcmp(m, "blur") ? 0 : 2;
+	}
+	return bg_mode;
+}
+
+void video_next_backgrounds(void)
+{
+	static const int next[3] = { 1, 2, 0 };	/* stretch, blur, replace, stretch... */
+	static const char *const names[3] = { "blur", "replace", "stretch" };
+	bg_mode = next[video_backgrounds()];
+	config_set("video", "backgrounds", names[bg_mode]);
+	config_save();
+	setting_env("M1_BGMODE", names[bg_mode]);
+}
+
+/* [video] text (M1_SMOOTH2D=0: sharp): 2D text from the original pixels instead of upscaled */
+static int text_sharp = -1;
+int video_text_sharp(void)
+{
+	if (text_sharp < 0)
+		text_sharp = getenv("M1_SMOOTH2D") && !atoi(getenv("M1_SMOOTH2D"));
+	return text_sharp;
+}
+
+void video_next_text(void)
+{
+	text_sharp = !video_text_sharp();
+	config_set("video", "text", text_sharp ? "sharp" : "smooth");
+	config_save();
+	setting_env("M1_SMOOTH2D", text_sharp ? "0" : "1");
+}
+
 static float side_anchor(float cx)
 {
 	static const float left[3] = { 0, 160, 320 };
@@ -1583,13 +1622,10 @@ static void draw_replacement(int id, const u8 *rgba, u32 w, u32 h)
 static u8 *bg_layer;
 static int side_fill(TaCtx *c, const u32 *order, u32 n)
 {
-	static int on = -1, mode = -1;
+	static int on = -1;
 	if (on < 0)
-	{
 		on = !getenv("M1_BLURFILL") || atoi(getenv("M1_BLURFILL"));
-		const char *m = getenv("M1_BGMODE");
-		mode = m && !strcmp(m, "replace") ? 1 : m && !strcmp(m, "blur") ? 0 : 2;	/* default: stretch */
-	}
+	const int mode = video_backgrounds();
 	static u32 cap;
 	if (tgt_w != 640)
 		return 0;

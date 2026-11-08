@@ -2,6 +2,26 @@
 
 All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); see the README.
 
+## 1.1.5 (2026-11-08)
+
+### Added
+- **More settings in the game** (enrique363/voldorium#9): GRAPHICS has a second page, MORE
+  SETTINGS, with loading speed (moved there), backgrounds (how 4:3 menu pictures fill 16:9:
+  stretch, blur or replace), text (smooth or sharp) and the sound volume (off, 25, 50, 75,
+  100). Like the other GRAPHICS settings they apply at once and are saved in `voldorium.ini`.
+- **Every `voldorium.ini` setting is documented**: a table in the README and a section in the
+  player folder's README.txt list each setting, its values and whether the game can change it.
+  `voldorium.ini` itself now has a note above each line, and the game keeps those notes when it
+  saves the file.
+
+### Changed
+- **The fight HUD now defaults to 4:3 everywhere**: a `voldorium.ini` without a `hud` line
+  (from a version before 1.1.4) now starts with 4:3 too, instead of EDGES. A `hud` setting you
+  chose is kept.
+
+### Fixed
+- Saving settings from the game no longer drops a `[debug]` section from `voldorium.ini`.
+
 ## 1.1.4 (2026-11-08)
 
 ### Added

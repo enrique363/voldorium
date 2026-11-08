@@ -145,6 +145,39 @@ static void config_load(void)
 	fclose(f);
 }
 
+/* the note written above each setting (player/voldorium.ini has the same ones); key "": the section */
+static const char *const ini_notes[][3] = {
+	{ "game", "disc", "your disc dump (the .gdi file); delete this line to choose another" },
+	{ "game", "font", "the Dreamcast system font file (optional)" },
+	{ "game", "loading", "original (as fast as the Dreamcast's drive) or fast (instant); online: always original" },
+	{ "game", "vmu", "the memory card file (default: vmu_a1.bin next to the game)" },
+	{ "video", "fullscreen", "1 full screen, 0 a window (Alt+Enter or F11 switch while playing)" },
+	{ "video", "resolution", "native (your monitor's) or a 16:9 size such as 1920x1080: the size the game is drawn at" },
+	{ "video", "window", "the window's size when not full screen" },
+	{ "video", "msaa", "anti-aliasing: 0 (off), 2, 4 or 8" },
+	{ "video", "backgrounds", "4:3 menu and loading pictures: stretch, blur (blurred sides) or replace (art16x9 folder)" },
+	{ "video", "hud", "fight HUD: 4:3 (as in the original), middle (halfway out) or edges (screen sides)" },
+	{ "video", "text", "menu and HUD text: smooth (upscaled) or sharp (the original pixels)" },
+	{ "video", "vsync", "1 on (no tearing), 0 off (lowest input delay)" },
+	{ "audio", "enabled", "0: no sound at all (the game starts without an audio device)" },
+	{ "audio", "volume", "sound volume in percent, 0 to 200" },
+	{ "keys", "", "keyboard: SDL key names (Up, Z, Return, Left Shift...). a b x y = the Dreamcast buttons, l r = triggers" },
+	{ "net", "port", "UDP port for online play (the lobby and manual connections)" },
+	{ "net", "peer", "manual connection only: the other player's address:port" },
+	{ "net", "player", "manual connection only: 1 or 2" },
+	{ "net", "delay", "fight input delay in frames online (default 2; rollback covers the rest)" },
+	{ "net", "menu_delay", "menu input delay in frames online; raise it if menus stutter over long distances" },
+	{ "net", "name", "your nickname in the Online Versus lobby (empty: shown as OPPONENT)" },
+	{ "net", "lobby", "lobby server as host:port (empty: the public lobby; none: internet lobby off)" },
+};
+static const char *ini_note(const char *section, const char *key)
+{
+	for (unsigned i = 0; i < sizeof(ini_notes) / sizeof(ini_notes[0]); i++)
+		if (!strcmp(ini_notes[i][0], section) && !strcmp(ini_notes[i][1], key))
+			return ini_notes[i][2];
+	return 0;
+}
+
 void config_save(void)
 {
 	if (!ini_path[0])
@@ -152,8 +185,9 @@ void config_save(void)
 	FILE *f = fopen(ini_path, "w");
 	if (!f)
 		return;
-	fprintf(f, "; Voldorium settings (see README.txt)\n");
-	static const char *order[] = { "game", "video", "audio", "keys", "net" };
+	fprintf(f, "; Voldorium settings (README.txt has more). Most of them are also in the game: GRAPHICS\n"
+			   "; in the main menu. A line starting with ; is a note; changes here apply at the next start.\n");
+	static const char *order[] = { "game", "video", "audio", "keys", "net", "debug" };
 	for (unsigned s = 0; s < sizeof(order) / sizeof(order[0]); s++)
 	{
 		int any = 0;
@@ -161,8 +195,16 @@ void config_save(void)
 			if (!strcmp(ini[i].section, order[s]))
 			{
 				if (!any)
+				{
 					fprintf(f, "\n[%s]\n", order[s]);
+					const char *n = ini_note(order[s], "");
+					if (n)
+						fprintf(f, "; %s\n", n);
+				}
 				any = 1;
+				const char *n = ini_note(order[s], ini[i].key);
+				if (n)
+					fprintf(f, "; %s\n", n);
 				fprintf(f, "%s = %s\n", ini[i].key, ini[i].value);
 			}
 	}

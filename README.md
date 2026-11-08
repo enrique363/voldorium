@@ -191,8 +191,10 @@ game.
 Run `Voldorium.exe` from the player folder. The first time, it asks for your disc dump (the
 `.gdi` file) and remembers it in `voldorium.ini`. It starts full screen at your desktop's
 resolution; the main menu's **GRAPHICS** entry changes resolution, full screen,
-anti-aliasing, VSync, where the fight HUD sits (as in the original 4:3 game by default, halfway
-out, or at the screen's edges) and loading speed (original or fast). Controllers and keyboard go through SDL2.
+anti-aliasing, VSync and where the fight HUD sits (as in the original 4:3 game by default,
+halfway out, or at the screen's edges); its second page, **MORE SETTINGS**, has loading speed
+(original or fast), how 4:3 menu pictures fill 16:9, sharp or smooth text, and the sound volume.
+Controllers and keyboard go through SDL2.
 
 **Online Versus** is on the main menu. It lists players around the world (and on your local
 network) who are searching with the same build. Pick one to challenge; the other player sees
@@ -200,9 +202,37 @@ your ping and accepts or declines. Players are shown as OPPONENT unless they set
 (`[net] name = ...` in `voldorium.ini`); computer names are never sent. Both players must have
 built from the same sources: the lobby only matches identical builds.
 
-Settings (`voldorium.ini`): `[video] fullscreen, resolution, window, msaa, backgrounds`
-(`stretch`, `blur` or `replace`), `hud` (`4:3`, `middle` or `edges`), `[net] lobby, name`, `[game] disc, vmu, loading` (`original` or `fast`). More detail is in
-`port/README.md` and in the README.txt of the player folder.
+### Settings (`voldorium.ini`)
+
+`voldorium.ini` sits next to the executable, with a note above each line. Settings marked ✓ can
+also be changed in the game (**GRAPHICS**, applied at once); edit the others while the game is
+closed.
+
+| Section | Setting | Values | In game | What it does |
+|---|---|---|---|---|
+| `[game]` | `disc` | path to a `.gdi` | | Your disc dump. Delete the line to be asked again. |
+| | `font` | file | | The Dreamcast system font (optional, `biosfont.bin`). |
+| | `loading` | `original`, `fast` | ✓ | Disc reads at the Dreamcast drive's speed, or instant. Online is always `original`. |
+| | `vmu` | file | | The memory card (default `vmu_a1.bin` next to the game). |
+| `[video]` | `fullscreen` | `1`, `0` | ✓ | Full screen or a window (also Alt+Enter / F11). |
+| | `resolution` | `native`, `1920x1080`... | ✓ | The size the game is drawn at: your monitor's, or a 16:9 size. |
+| | `window` | `1280x720`... | | The window's size when not full screen. |
+| | `msaa` | `0`, `2`, `4`, `8` | ✓ | Anti-aliasing. |
+| | `vsync` | `1`, `0` | ✓ | On: no tearing. Off: lowest input delay. |
+| | `hud` | `4:3`, `middle`, `edges` | ✓ | Where the fight HUD sits in 16:9. Only your own screen, also online. |
+| | `backgrounds` | `stretch`, `blur`, `replace` | ✓ | How 4:3 menu and loading pictures fill 16:9 (`replace`: 16:9 art from the `art16x9` folder). |
+| | `text` | `smooth`, `sharp` | ✓ | Menu and HUD text upscaled with smooth edges, or the original pixels. |
+| `[audio]` | `enabled` | `1`, `0` | | `0`: no sound at all. |
+| | `volume` | `0` to `200` | ✓ | Sound volume in percent (the menu steps 0, 25, 50, 75, 100). |
+| `[keys]` | `up down left right a b x y start l r` | SDL key names | | Keyboard controls (`Up`, `Z`, `Return`...). |
+| `[net]` | `name` | text | | Your nickname in the Online Versus lobby (empty: OPPONENT). |
+| | `port` | `7000` | | UDP port for online play. |
+| | `delay` | frames, `2` | | Fight input delay online; rollback covers the rest. |
+| | `menu_delay` | frames, `8` | | Menu input delay online; raise it over long distances. |
+| | `peer`, `player` | `address:port`, `1`/`2` | | Manual connections without the lobby (README.txt). |
+| | `lobby` | `host:port`, `none` | | Your own lobby server; `none` turns the internet lobby off. |
+
+More detail is in `port/README.md` and in the README.txt of the player folder.
 
 ## Steam Deck
 

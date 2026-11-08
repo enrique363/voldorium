@@ -24,11 +24,15 @@ viewer L / R change pictures (the D-pad moves the picture).
 The game starts full screen at your monitor's resolution. GRAPHICS in the main menu (under
 OPTIONS) switches between full screen and a window, sets the resolution the game is drawn at
 (native or a 16:9 size up to your monitor's), anti-aliasing (off, 2x, 4x, 8x), VSync (see
-below), the fight HUD (4:3, the default: life bars and names where the original 4:3 game has
+below) and the fight HUD (4:3, the default: life bars and names where the original 4:3 game has
 them; MIDDLE: halfway out; EDGES: at the sides of the 16:9 screen; only your own screen
-changes, also online) and loading (ORIGINAL: the disc loads as fast as the Dreamcast's drive, as on the
-console; FAST: instantly, so the VS screen before a fight is cut short; online matches always
-load at the original speed); changes apply at once and are saved in voldorium.ini. Alt+Enter or F11: full screen on/off. Esc: quit (during an online match: leave it and go back to the main menu; if a match is cut off, both players return there).
+changes, also online). MORE SETTINGS, its second page, has loading (ORIGINAL: the disc loads as
+fast as the Dreamcast's drive, as on the console; FAST: instantly, so the VS screen before a
+fight is cut short; online matches always load at the original speed), backgrounds and text
+(see 16:9 pictures below) and the sound volume (100, off, 25, 50, 75). Changes apply at once
+and are saved in voldorium.ini; every setting is listed under "voldorium.ini" below. Alt+Enter
+or F11: full screen on/off. Esc: quit (during an online match: leave it and go back to the main
+menu; if a match is cut off, both players return there).
 
 VSync
 -----
@@ -127,6 +131,32 @@ automatic check takes for a malware loader. If your copy comes from the project'
 Releases (or you built it yourself): Windows Security > Virus & threat protection > Protection
 history, open the item, Actions > Allow on device. Reporting it to Microsoft as "Incorrectly
 detected" (microsoft.com/wdsi/filesubmission) helps clear it for everyone.
+
+voldorium.ini
+-------------
+The settings file next to the executable; a note above each line says what it does. The ones
+marked * are also in the game (GRAPHICS). Edit it while the game is closed.
+[game]   disc         your disc dump (.gdi); delete the line to choose another
+         font         the Dreamcast system font file (optional)
+         loading *    original or fast (see above)
+         vmu          the memory card file (default vmu_a1.bin next to the game)
+[video]  fullscreen * 1 full screen, 0 a window
+         resolution * native, or a 16:9 size such as 1920x1080 (the size the game is drawn at)
+         window       the window's size when not full screen (default 1280x720)
+         msaa *       anti-aliasing: 0, 2, 4 or 8
+         backgrounds * stretch, blur or replace (see 16:9 pictures)
+         hud *        4:3, middle or edges
+         text *       smooth or sharp
+         vsync *      1 on, 0 off (see VSync)
+[audio]  enabled      0: no sound at all
+         volume *     percent, 0 to 200
+[keys]   up down left right a b x y start l r: keyboard keys, as SDL key names (see Controls)
+[net]    name         your nickname in the Online Versus lobby
+         port         UDP port for online play (default 7000)
+         delay        fight input delay in frames online (default 2)
+         menu_delay   menu input delay in frames online (default 8; raise it over long distances)
+         peer, player the manual connection (see below)
+         lobby        your own lobby server as host:port (none: no internet lobby)
 
 m1_log.txt (next to the executable) is the log. During an online session it has a line every
 60 frames like "net: frame 1250 checksum 1a2b3c..."; the two players' lines for the same frame
