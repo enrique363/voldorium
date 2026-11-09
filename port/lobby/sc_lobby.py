@@ -27,15 +27,25 @@ before 1.1.6 never ask: when one of their builds (RELEASE_BUILDS) is in the lobb
 release exists, its player list starts with a made-up entry, UPDATE NOW (the old game can only
 show a name of up to 12 letters there, as "Challenge UPDATE NOW."); a challenge to it is declined.
 
-Privacy: the log holds ids and match tokens only, no names or addresses; VERSION is not logged.
+Usage counts. Once an hour (so far today) and at the end of each UTC day the log gets a "stats"
+line: game starts (update checks, 1.1.6 on) and Online Versus players, each as different players
+per version, lobby visits, and matches (direct or relay). A player is counted by a hash of its
+address with a salt made at random each day and never written down, so the counts cannot be
+traced back to an address, nor linked from one day to the next. A restart starts the counts again
+(the line says from when).
+
+Privacy: the log holds ids, match tokens and counts only, no names or addresses; VERSION is not
+logged one by one.
 Protections: printable ASCII and length checks on every lobby datagram, a token bucket per
 source address, caps on players, matches and relays, relay rate and size limits, idle expiry.
 The server keeps no files and runs nothing it receives. Standard library only (Python 3.6+).
 """
+import hashlib
 import os
 import re
 import secrets
 import selectors
+import signal
 import socket
 import sys
 import threading
@@ -137,6 +147,52 @@ class Relay:
         self.window, self.pkts, self.bytes = int(self.created), 0, 0
 
 
+class Stats:
+    """Today's usage counts (UTC): different players per version (salted address hashes, the salt
+    new each day and kept in memory only), lobby visits and matches."""
+    MAX = 100000                  # players remembered per day and kind
+
+    def __init__(self):
+        self.start(time.gmtime())
+
+    def start(self, t):
+        self.day, self.since = time.strftime('%Y-%m-%d', t), time.strftime('%H:%M', t)
+        self.salt = secrets.token_bytes(16)
+        self.starts = {}          # version -> player hashes: game starts (update checks)
+        self.lobby = {}           # version -> player hashes: Online Versus
+        self.visits = self.matches = self.direct = self.relay = 0
+
+    def add(self, kind, version, addr):
+        h = hashlib.sha256(self.salt + addr[0].encode('ascii')).digest()[:8]
+        seen = kind.setdefault(version, set())
+        if len(seen) < self.MAX:
+            seen.add(h)
+
+    @staticmethod
+    def per_version(kind):
+        if not kind:
+            return '0 players'
+        def order(v):
+            return (0, vtuple(v)) if VERSION_RE.match(v) else (1, ())
+        everyone = set().union(*kind.values())
+        return '%d players (%s)' % (len(everyone), ', '.join('%s %d' % (v, len(kind[v])) for v in sorted(kind, key=order)))
+
+    def report(self, when):
+        log('stats %s %s from %s UTC: game starts %s; online versus %s, %d visits; '
+            'matches %d (direct %d, relay %d)' % (self.day, when, self.since, self.per_version(self.starts),
+                                                  self.per_version(self.lobby), self.visits, self.matches,
+                                                  self.direct, self.relay))
+
+    def tick(self):
+        """Each second: the day's line at midnight UTC, the running one on the hour."""
+        t = time.gmtime()
+        if time.strftime('%Y-%m-%d', t) != self.day:
+            self.report('day')
+            self.start(t)
+        elif t.tm_min == 0 and t.tm_sec == 0:
+            self.report('so far')
+
+
 class Server:
     def __init__(self):
         self.lobby = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -155,6 +211,8 @@ class Server:
         self.sel.register(self.relay, selectors.EVENT_READ, self.on_relay)
         self.last_sweep = time.monotonic()
         self.latest = ''         # the newest release, x.y.z ('' unknown)
+        self.stats = Stats()
+        self.build_version = {}  # build key -> version, from VERSION (1.1.6 on)
         fixed = os.environ.get('SC_LATEST', '')
         if VERSION_RE.match(fixed):
             self.latest = fixed
@@ -218,8 +276,12 @@ class Server:
             return
         build, pid, verb = w[1], w[2], w[3]
         if verb == 'VERSION':
-            if len(w) == 5 and VERSION_RE.match(w[4]) and self.latest:
-                self.send(addr, 'SCL1 LATEST %s' % self.latest)
+            if len(w) == 5 and VERSION_RE.match(w[4]):
+                if self.latest:
+                    self.send(addr, 'SCL1 LATEST %s' % self.latest)
+                if build in self.build_version or len(self.build_version) < 1000:
+                    self.build_version[build] = w[4]
+                self.stats.add(self.stats.starts, w[4], addr)
             return
         p = self.players.get(pid)
         if p is not None and (p.addr != addr or p.build != build):
@@ -237,6 +299,8 @@ class Server:
                     return
                 p = self.players[pid] = Player(pid, build, name, addr)
                 log('join %s' % pid)    # no names or addresses in the log
+                self.stats.visits += 1
+                self.stats.add(self.stats.lobby, self.version_of(build), addr)
             p.name, p.addr, p.build, p.seen, p.rtt = name, addr, build, time.monotonic(), rtt
             self.send_list(p)
         elif verb == 'BYE' and p is not None:
@@ -264,6 +328,9 @@ class Server:
                 if len(m.result) == 2:
                     self.finish_match(m)
 
+    def version_of(self, build):
+        return RELEASE_BUILDS.get(build) or self.build_version.get(build) or 'other'
+
     def send_list(self, p):
         others = [o for o in self.players.values() if o.build == p.build and o.id != p.id]
         others.sort(key=lambda o: o.seen, reverse=True)
@@ -282,6 +349,7 @@ class Server:
         self.send(challenger.addr, 'SCL1 MATCH %s %s' % (token, addr_str(accepter.addr)))
         self.send(accepter.addr, 'SCL1 MATCH %s %s' % (token, addr_str(challenger.addr)))
         log('match %s %s vs %s' % (token, challenger.id, accepter.id))
+        self.stats.matches += 1
 
     def finish_match(self, m):
         m.done = True
@@ -290,6 +358,7 @@ class Server:
             self.send(a, 'SCL1 GO %s DIRECT %s' % (m.token, addr_str(b)))
             self.send(b, 'SCL1 GO %s DIRECT %s' % (m.token, addr_str(a)))
             log('match %s direct' % m.token)
+            self.stats.direct += 1
         else:
             if len(self.relays) >= MAX_RELAYS:
                 log('match %s: relay full' % m.token)
@@ -298,6 +367,7 @@ class Server:
             for x in (a, b):
                 self.send(x, 'SCL1 GO %s RELAY %d' % (m.token, RELAY_PORT))
             log('match %s relay' % m.token)
+            self.stats.relay += 1
 
     # ---- relay ----
     def on_relay(self):
@@ -348,6 +418,7 @@ class Server:
 
     # ---- housekeeping ----
     def sweep(self):
+        self.stats.tick()
         now = time.monotonic()
         for pid in [k for k, p in self.players.items() if now - p.seen > PLAYER_TIMEOUT]:
             del self.players[pid]
@@ -376,7 +447,11 @@ class Server:
 
 
 if __name__ == '__main__':
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))    # systemd stop or restart: the counts first
+    server = Server()
     try:
-        Server().run()
-    except KeyboardInterrupt:
-        sys.exit(0)
+        server.run()
+    except (KeyboardInterrupt, SystemExit):
+        pass
+    finally:
+        server.stats.report('until stop')
