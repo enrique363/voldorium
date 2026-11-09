@@ -24,8 +24,8 @@ Nothing else is forwarded: unknown senders are dropped.
 Update notice. The newest release comes from SC_LATEST (x.y.z), else from GitHub's releases API,
 asked hourly. 1.1.6 and later ask for it themselves (VERSION) and say so in their menus. Releases
 before 1.1.6 never ask: when one of their builds (RELEASE_BUILDS) is in the lobby while a newer
-release exists, its player list starts with two made-up entries, NEW VERSION and ON GITHUB; a
-challenge to them is declined.
+release exists, its player list starts with a made-up entry, UPDATE NOW (the old game can only
+show a name of up to 12 letters there, as "Challenge UPDATE NOW."); a challenge to it is declined.
 
 Privacy: the log holds ids and match tokens only, no names or addresses; VERSION is not logged.
 Protections: printable ASCII and length checks on every lobby datagram, a token bucket per
@@ -75,7 +75,7 @@ RELEASE_BUILDS = {
     '065ec8255871': '1.1.0', '1804a88d98fa': '1.1.1', '86790e5f87d4': '1.1.2', 'ba6994650b69': '1.1.3',
     'b618f58aec4d': '1.1.4', 'c8671adb8ad2': '1.1.5',
 }
-NOTICE = [('fffffff0', 'NEW_VERSION'), ('fffffff1', 'ON_GITHUB')]   # ids and names (_ = space)
+NOTICE = [('fffffff0', 'UPDATE_NOW')]   # ids and names (_ = space; 12 letters at most)
 NOTICE_IDS = {i for i, _ in NOTICE}
 
 

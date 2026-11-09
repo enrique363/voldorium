@@ -90,7 +90,7 @@ From 1.1.6 on, the game says when a newer version is out: the main menu's corner
 `ver. 1.1.6 (1.1.7 is out)`, and GRAPHICS > MORE SETTINGS gets an **UPDATE TO 1.1.7** line that
 opens the release page in your browser. Nothing is downloaded or installed for you. The game
 asks the lobby server once per start, sending only its version number; `[game] update_check = 0`
-turns it off. Older versions see two entries, NEW VERSION and ON GITHUB, in the Online Versus
+turns it off. Older versions see an entry named UPDATE NOW at the top of the Online Versus
 player list instead. To hear about each release by email, use **Watch > Custom > Releases** on
 this repository.
 

@@ -12,8 +12,9 @@ All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); 
   first). Nothing is downloaded or installed. No answer, no notice; nothing waits for it.
   `[game] update_check = 0` turns it off, and so does `[net] lobby = none`.
 - **Lobby server**: answers the update check with the newest GitHub release, and shows players of
-  1.1.5 and earlier two entries, NEW VERSION and ON GITHUB, in their Online Versus player list
-  while a newer release exists (a challenge to them is declined).
+  1.1.5 and earlier an entry named UPDATE NOW at the top of their Online Versus player list
+  while a newer release exists (a challenge to it is declined; older versions can show nothing
+  but a player's name there).
 
 ## 1.1.5 (2026-11-08)
 

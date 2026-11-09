@@ -20,8 +20,8 @@ The server answers the game's update check (`VERSION`, 1.1.6 on) with the newest
 once an hour), so publishing a release on GitHub is enough: the server needs no change per
 release. `SC_LATEST=x.y.z` in the service's environment fixes the answer instead. Releases before
 1.1.6 never ask; while a newer release exists, the player lists sent to their build keys
-(`RELEASE_BUILDS`) start with two made-up entries, NEW VERSION and ON GITHUB, and a challenge to
-them is declined.
+(`RELEASE_BUILDS`) start with a made-up entry, UPDATE NOW (those versions can only show a name of
+up to 12 letters, as "Challenge UPDATE NOW."), and a challenge to it is declined.
 
 ## Install or update
 
