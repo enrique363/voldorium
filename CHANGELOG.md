@@ -2,6 +2,19 @@
 
 All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); see the README.
 
+## 1.1.6 (2026-11-09)
+
+### Added
+- **Update notice**: at the main menu the game asks the lobby server once whether a newer version
+  is out, sending only its version number. When one is, the corner reads `ver. 1.1.6 (1.1.7 is
+  out)`, the ONLINE VERSUS and GRAPHICS help lines mention it, and GRAPHICS > MORE SETTINGS gets
+  UPDATE TO x.y.z, which opens the release page in the browser (a full screen game is minimized
+  first). Nothing is downloaded or installed. No answer, no notice; nothing waits for it.
+  `[game] update_check = 0` turns it off, and so does `[net] lobby = none`.
+- **Lobby server**: answers the update check with the newest GitHub release, and shows players of
+  1.1.5 and earlier two entries, NEW VERSION and ON GITHUB, in their Online Versus player list
+  while a newer release exists (a challenge to them is declined).
+
 ## 1.1.5 (2026-11-08)
 
 ### Added

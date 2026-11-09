@@ -132,6 +132,15 @@ Releases (or you built it yourself): Windows Security > Virus & threat protectio
 history, open the item, Actions > Allow on device. Reporting it to Microsoft as "Incorrectly
 detected" (microsoft.com/wdsi/filesubmission) helps clear it for everyone.
 
+Updates
+-------
+At the main menu the game asks the lobby server once whether a newer version is out (it sends
+only its version number). If one is, the lower right corner reads "ver. 1.1.6 (1.1.7 is out)"
+and GRAPHICS > MORE SETTINGS has UPDATE TO 1.1.7, which opens the download page in your browser.
+Nothing is downloaded or installed for you: unpack the new version and copy voldorium.ini and
+vmu_a1.bin into it. [game] update_check = 0 turns the check off. Online Versus only matches
+players of the same version.
+
 voldorium.ini
 -------------
 The settings file next to the executable; a note above each line says what it does. The ones
@@ -140,6 +149,7 @@ marked * are also in the game (GRAPHICS). Edit it while the game is closed.
          font         the Dreamcast system font file (optional)
          loading *    original or fast (see above)
          vmu          the memory card file (default vmu_a1.bin next to the game)
+         update_check 1: say when a newer version is out (see Updates), 0: never ask
 [video]  fullscreen * 1 full screen, 0 a window
          resolution * native, or a 16:9 size such as 1920x1080 (the size the game is drawn at)
          window       the window's size when not full screen (default 1280x720)

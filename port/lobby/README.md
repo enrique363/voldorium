@@ -13,6 +13,16 @@
 | Login | SSH with a key only (no passwords, no root login); the user, host and key file are kept out of the repository, in `local.env` (`SC_LOBBY_HOST`, `SC_LOBBY_KEY`) |
 | Service | `sc-lobby.service` (systemd), user `sclobby` (no shell, no home), files in `/opt/sc-lobby` |
 
+## Update notice
+
+The server answers the game's update check (`VERSION`, 1.1.6 on) with the newest release
+(`LATEST`). It learns that release from GitHub's releases API (`api.github.com`, outbound HTTPS,
+once an hour), so publishing a release on GitHub is enough: the server needs no change per
+release. `SC_LATEST=x.y.z` in the service's environment fixes the answer instead. Releases before
+1.1.6 never ask; while a newer release exists, the player lists sent to their build keys
+(`RELEASE_BUILDS`) start with two made-up entries, NEW VERSION and ON GITHUB, and a challenge to
+them is declined.
+
 ## Install or update
 
 From `sc/port` on the PC (Git Bash):

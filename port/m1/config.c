@@ -151,6 +151,7 @@ static const char *const ini_notes[][3] = {
 	{ "game", "font", "the Dreamcast system font file (optional)" },
 	{ "game", "loading", "original (as fast as the Dreamcast's drive) or fast (instant); online: always original" },
 	{ "game", "vmu", "the memory card file (default: vmu_a1.bin next to the game)" },
+	{ "game", "update_check", "1: ask the lobby server for a newer version at the main menu (sends only the version), 0: never" },
 	{ "video", "fullscreen", "1 full screen, 0 a window (Alt+Enter or F11 switch while playing)" },
 	{ "video", "resolution", "native (your monitor's) or a 16:9 size such as 1920x1080: the size the game is drawn at" },
 	{ "video", "window", "the window's size when not full screen" },

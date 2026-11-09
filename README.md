@@ -86,6 +86,14 @@ between any two players of that version.
 To uninstall, delete the folder. Your settings and memory card are in it (`voldorium.ini`,
 `vmu_a1.bin`): keep those two files to carry them over to a new version.
 
+From 1.1.6 on, the game says when a newer version is out: the main menu's corner reads
+`ver. 1.1.6 (1.1.7 is out)`, and GRAPHICS > MORE SETTINGS gets an **UPDATE TO 1.1.7** line that
+opens the release page in your browser. Nothing is downloaded or installed for you. The game
+asks the lobby server once per start, sending only its version number; `[game] update_check = 0`
+turns it off. Older versions see two entries, NEW VERSION and ON GITHUB, in the Online Versus
+player list instead. To hear about each release by email, use **Watch > Custom > Releases** on
+this repository.
+
 ### Linux
 
 You need a 64-bit Linux with glibc 2.28 or newer (any distribution from 2018 on), SDL2 and
@@ -214,6 +222,7 @@ closed.
 | | `font` | file | | The Dreamcast system font (optional, `biosfont.bin`). |
 | | `loading` | `original`, `fast` | ✓ | Disc reads at the Dreamcast drive's speed, or instant. Online is always `original`. |
 | | `vmu` | file | | The memory card (default `vmu_a1.bin` next to the game). |
+| | `update_check` | `1`, `0` | | Asks the lobby server for a newer version at the main menu (sends only the version). |
 | `[video]` | `fullscreen` | `1`, `0` | ✓ | Full screen or a window (also Alt+Enter / F11). |
 | | `resolution` | `native`, `1920x1080`... | ✓ | The size the game is drawn at: your monitor's, or a 16:9 size. |
 | | `window` | `1280x720`... | | The window's size when not full screen. |

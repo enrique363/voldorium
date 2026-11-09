@@ -113,6 +113,10 @@ static int gl_load(void) { return 1; }
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#ifndef _WIN32
+#include <spawn.h>
+extern char **environ;
+#endif
 
 u32 hw_reg(u32 addr);
 unsigned tex_get(u32 tcw, u32 tsp);
@@ -301,6 +305,23 @@ static void window_fit(void)
 }
 
 int video_is_fullscreen(void) { return win && (SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN_DESKTOP) != 0; }
+
+/* GRAPHICS' UPDATE line (online.c): the release page in the browser; a full screen game is
+   minimized first, so the browser is not hidden behind it */
+void video_open_url(const char *url)
+{
+	if (win && video_is_fullscreen())
+		SDL_MinimizeWindow(win);
+#ifdef _WIN32
+	const int ok = SDL_OpenURL(url) == 0;
+#else
+	/* xdg-open, not SDL_OpenURL: the player's SDL2 may be older than 2.0.14 */
+	pid_t pid;
+	char *argv[] = { "xdg-open", (char *)url, 0 };
+	const int ok = posix_spawnp(&pid, "xdg-open", 0, 0, argv, environ) == 0;
+#endif
+	printf("open %s: %s\n", url, ok ? "ok" : "failed");
+}
 
 /* a GRAPHICS change also goes into this process's environment: a restart into or out of an
    online match (online.c relaunch) inherits it, and the settings file is only read where the
@@ -2039,10 +2060,13 @@ void video_record_vblank(void)
 static void render_frame_draw(TaCtx *c);
 
 /* "ver. 1.0.1" in the lower right corner, in the BIOS font like the game's help line, white with
-   a dark shadow; nothing without the font */
+   a dark shadow; nothing without the font. A newer release (online.c's update check) is added:
+   "ver. 1.1.6 (1.1.7 is out)". */
+const char *online_latest(void);
 static GLuint ver_prog, ver_tex;
 static GLint u_v_col;
 static int ver_w;
+static char ver_text[48];
 static void draw_version(int rw, int rh)
 {
 	const u8 *font = hw_font_12x24();
@@ -2062,9 +2086,19 @@ static void draw_version(int rw, int rh)
 		glAttachShader(ver_prog, shader(GL_FRAGMENT_SHADER, fs));
 		glLinkProgram(ver_prog);
 		u_v_col = glGetUniformLocation(ver_prog, "col");
+	}
+	char text[48];
+	if (online_latest()[0])
+		snprintf(text, sizeof(text), "ver. %s (%s is out)", VOLDORIUM_VERSION, online_latest());
+	else
+		snprintf(text, sizeof(text), "ver. %s", VOLDORIUM_VERSION);
+	if (!ver_tex || strcmp(text, ver_text))
+	{
+		snprintf(ver_text, sizeof(ver_text), "%s", text);
+		if (ver_tex)
+			glDeleteTextures(1, &ver_tex);
 		/* the text as a coverage mask, bottom row first (GL); glyph i is ASCII 32 + i */
-		static const char text[] = "ver. " VOLDORIUM_VERSION;
-		const int n = (int)sizeof(text) - 1;
+		const int n = (int)strlen(text);
 		ver_w = n * 12;
 		u8 *px = calloc((size_t)ver_w * 24, 1);
 		for (int k = 0; k < n; k++)

@@ -8,10 +8,12 @@ Lobby, UDP 7100. Every datagram is one line of printable ASCII, at most 200 byte
                   "SCL1 <build> <id> TO <peer id> <verb> [<arg>]"   lobby message for another player
                                                           (verbs CHAL, ACCEPT, DECLINE, CANCEL, BUSY)
                   "SCL1 <build> <id> PUNCHED <token> <0|1>"   hole punching result
+                  "SCL1 <build> <id> VERSION <x.y.z>"   update check, once at the main menu (1.1.6 on)
   server -> game  "SCL1 LIST <id>,<name>,<ip>:<port>,<rtt> ..."  the other players of the same build
                   "SCL1 FROM <peer id> <ip>:<port> <verb> [<arg>]"
                   "SCL1 MATCH <token> <peer ip>:<port>"    after an ACCEPT, to both players: punch now
                   "SCL1 GO <token> DIRECT <peer ip>:<port>" or "SCL1 GO <token> RELAY <relay port>"
+                  "SCL1 LATEST <x.y.z>"                   the newest release (answer to VERSION)
 The address the server sees for a player is its public (outside the router) address of the game
 port; the game uses that same port for punching and for GGPO.
 
@@ -19,7 +21,13 @@ Relay, UDP 7101. A player registers with "SCR1 <token> <id>" from its game port;
 players of a match have registered, any other datagram from one is forwarded to the other.
 Nothing else is forwarded: unknown senders are dropped.
 
-Privacy: the log holds ids and match tokens only, no names or addresses.
+Update notice. The newest release comes from SC_LATEST (x.y.z), else from GitHub's releases API,
+asked hourly. 1.1.6 and later ask for it themselves (VERSION) and say so in their menus. Releases
+before 1.1.6 never ask: when one of their builds (RELEASE_BUILDS) is in the lobby while a newer
+release exists, its player list starts with two made-up entries, NEW VERSION and ON GITHUB; a
+challenge to them is declined.
+
+Privacy: the log holds ids and match tokens only, no names or addresses; VERSION is not logged.
 Protections: printable ASCII and length checks on every lobby datagram, a token bucket per
 source address, caps on players, matches and relays, relay rate and size limits, idle expiry.
 The server keeps no files and runs nothing it receives. Standard library only (Python 3.6+).
@@ -30,7 +38,10 @@ import secrets
 import selectors
 import socket
 import sys
+import threading
 import time
+import json
+import urllib.request
 
 LOBBY_PORT = int(os.environ.get('SC_LOBBY_PORT', '7100'))
 RELAY_PORT = LOBBY_PORT + 1
@@ -53,6 +64,23 @@ ID_RE = re.compile(r'^[0-9a-f]{8}$')
 BUILD_RE = re.compile(r'^[0-9A-Za-z]{1,16}$')
 NAME_RE = re.compile(r'^[A-Z0-9 -]{1,12}$')
 VERBS = {'CHAL', 'ACCEPT', 'DECLINE', 'CANCEL', 'BUSY'}
+VERSION_RE = re.compile(r'^\d{1,3}\.\d{1,3}\.\d{1,3}$')
+RELEASES_URL = 'https://api.github.com/repos/enrique363/voldorium/releases/latest'
+LATEST_EVERY = 3600.0         # seconds between GitHub checks
+# the build keys (tools/build.py build_id) of the releases before the update check: they never
+# send VERSION, so the lobby tells them about a newer release with made-up list entries
+RELEASE_BUILDS = {
+    '5e26c1503049': '1.0.3', '97ea52148da4': '1.0.4', '02c0216fdf90': '1.0.5', 'c49a332fb17b': '1.0.6',
+    'a3d65679a990': '1.0.7', '02ceb75017de': '1.0.8', 'bae0bd2248a9': '1.0.9', '3f3f241f32e3': '1.0.10',
+    '065ec8255871': '1.1.0', '1804a88d98fa': '1.1.1', '86790e5f87d4': '1.1.2', 'ba6994650b69': '1.1.3',
+    'b618f58aec4d': '1.1.4', 'c8671adb8ad2': '1.1.5',
+}
+NOTICE = [('fffffff0', 'NEW_VERSION'), ('fffffff1', 'ON_GITHUB')]   # ids and names (_ = space)
+NOTICE_IDS = {i for i, _ in NOTICE}
+
+
+def vtuple(v):
+    return tuple(int(x) for x in v.split('.'))
 
 
 def log(*a):
@@ -126,7 +154,34 @@ class Server:
         self.sel.register(self.lobby, selectors.EVENT_READ, self.on_lobby)
         self.sel.register(self.relay, selectors.EVENT_READ, self.on_relay)
         self.last_sweep = time.monotonic()
+        self.latest = ''         # the newest release, x.y.z ('' unknown)
+        fixed = os.environ.get('SC_LATEST', '')
+        if VERSION_RE.match(fixed):
+            self.latest = fixed
+        else:
+            threading.Thread(target=self.ask_github, daemon=True).start()
         log('lobby on UDP %d, relay on UDP %d' % (LOBBY_PORT, RELAY_PORT))
+
+    def ask_github(self):
+        """The newest release's tag (vX.Y.Z) from GitHub, every LATEST_EVERY seconds."""
+        while True:
+            try:
+                req = urllib.request.Request(RELEASES_URL, headers={'User-Agent': 'voldorium-lobby',
+                                                                    'Accept': 'application/vnd.github+json'})
+                with urllib.request.urlopen(req, timeout=15) as r:
+                    tag = str(json.loads(r.read(65536).decode('utf-8')).get('tag_name', ''))
+                v = tag[1:] if tag.startswith('v') else tag
+                if VERSION_RE.match(v) and v != self.latest:
+                    self.latest = v
+                    log('latest release %s' % v)
+            except Exception as e:      # offline, rate limited: keep the last answer
+                log('release check failed: %s' % type(e).__name__)
+            time.sleep(LATEST_EVERY)
+
+    def outdated(self, build):
+        """A pre-1.1.6 release build while a newer release exists."""
+        old, latest = RELEASE_BUILDS.get(build), self.latest
+        return bool(old and latest) and vtuple(old) < vtuple(latest)
 
     # ---- lobby ----
     def send(self, addr, text):
@@ -162,6 +217,10 @@ class Server:
         if len(w) < 4 or w[0] != 'SCL1' or not BUILD_RE.match(w[1]) or not ID_RE.match(w[2]):
             return
         build, pid, verb = w[1], w[2], w[3]
+        if verb == 'VERSION':
+            if len(w) == 5 and VERSION_RE.match(w[4]) and self.latest:
+                self.send(addr, 'SCL1 LATEST %s' % self.latest)
+            return
         p = self.players.get(pid)
         if p is not None and (p.addr != addr or p.build != build):
             if verb != 'HELLO':
@@ -186,6 +245,9 @@ class Server:
         elif verb == 'TO' and p is not None and len(w) >= 6:
             target, msg = w[4], w[5]
             arg = ' '.join(w[6:])[:12]
+            if target in NOTICE_IDS and msg == 'CHAL' and self.outdated(p.build):
+                self.send(p.addr, 'SCL1 FROM %s 0.0.0.0:1 DECLINE' % target)
+                return
             t = self.players.get(target)
             if not ID_RE.match(target) or msg not in VERBS or t is None or t.build != p.build or target == pid:
                 return
@@ -206,6 +268,8 @@ class Server:
         others = [o for o in self.players.values() if o.build == p.build and o.id != p.id]
         others.sort(key=lambda o: o.seen, reverse=True)
         items = ['%s,%s,%s,%d' % (o.id, o.name.replace(' ', '_'), addr_str(o.addr), o.rtt) for o in others[:MAX_LIST]]
+        if self.outdated(p.build):
+            items = ['%s,%s,0.0.0.0:1,-1' % n for n in NOTICE] + items[:MAX_LIST - len(NOTICE)]
         self.send(p.addr, 'SCL1 LIST ' + ' '.join(items))
 
     def start_match(self, challenger, accepter):
