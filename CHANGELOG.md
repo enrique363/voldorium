@@ -2,7 +2,7 @@
 
 All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); see the README.
 
-## Unreleased
+## 1.1.7 (2026-11-09)
 
 ### Changed
 - **The update notice's UPDATE TO line is green** (the main menu's green, as on ONLINE
