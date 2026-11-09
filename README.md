@@ -87,8 +87,9 @@ To uninstall, delete the folder. Your settings and memory card are in it (`voldo
 `vmu_a1.bin`): keep those two files to carry them over to a new version.
 
 From 1.1.6 on, the game says when a newer version is out: the main menu's corner reads
-`ver. 1.1.6 (1.1.7 is out)`, and GRAPHICS > MORE SETTINGS gets an **UPDATE TO 1.1.7** line that
-opens the release page in your browser. Nothing is downloaded or installed for you. The game
+`ver. 1.1.6 (1.1.7 is out)`, and ONLINE VERSUS and GRAPHICS > MORE SETTINGS get a green
+**UPDATE TO 1.1.7** line that opens the release page in your browser (the line is in ONLINE
+VERSUS and green from 1.1.7 on). Nothing is downloaded or installed for you. The game
 asks the lobby server once per start, sending only its version number; `[game] update_check = 0`
 turns it off. Older versions see an entry named UPDATE NOW at the top of the Online Versus
 player list instead. To hear about each release by email, use **Watch > Custom > Releases** on

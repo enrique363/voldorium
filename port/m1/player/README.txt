@@ -136,7 +136,8 @@ Updates
 -------
 At the main menu the game asks the lobby server once whether a newer version is out (it sends
 only its version number). If one is, the lower right corner reads "ver. 1.1.6 (1.1.7 is out)"
-and GRAPHICS > MORE SETTINGS has UPDATE TO 1.1.7, which opens the download page in your browser.
+and ONLINE VERSUS and GRAPHICS > MORE SETTINGS have UPDATE TO 1.1.7 (in green), which opens the
+download page in your browser.
 Nothing is downloaded or installed for you: unpack the new version and copy voldorium.ini and
 vmu_a1.bin into it. [game] update_check = 0 turns the check off. Online Versus only matches
 players of the same version.

@@ -2,6 +2,13 @@
 
 All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); see the README.
 
+## Unreleased
+
+### Changed
+- **The update notice's UPDATE TO line is green** (the main menu's green, as on ONLINE
+  VERSUS), and it is also in the ONLINE VERSUS lobby, below the players. Selecting it opens the
+  release page.
+
 ## 1.1.6 (2026-11-09)
 
 ### Added

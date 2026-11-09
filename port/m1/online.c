@@ -58,7 +58,7 @@ void online_menu(SH4 *c, void (*f)(SH4 *));
 #define POOL_N 6
 #define ID_BACK 21			/* TO MAIN MENU */
 /* values of the lobby's action entries (the game's own go up to 0x13) */
-enum { V_PEER = 0x40, V_CANCEL = 0x48, V_ACCEPT, V_DECLINE, V_STATUS, V_G_DISPLAY = 0x50, V_G_RES, V_G_AA, V_G_VSYNC, V_G_LOADING, V_G_HUD, V_G_BG, V_G_TEXT, V_G_VOLUME, V_G_MORE, V_G_UPDATE, V_G_FIRST };	/* V_STATUS: a status line (selecting it does nothing; a disabled line would show "Not available in this version.") */
+enum { V_PEER = 0x40, V_CANCEL = 0x48, V_ACCEPT, V_DECLINE, V_STATUS, V_L_UPDATE, V_G_DISPLAY = 0x50, V_G_RES, V_G_AA, V_G_VSYNC, V_G_LOADING, V_G_HUD, V_G_BG, V_G_TEXT, V_G_VOLUME, V_G_MORE, V_G_UPDATE, V_G_FIRST };	/* V_STATUS: a status line (selecting it does nothing; a disabled line would show "Not available in this version.") */
 
 static void put32(u32 a, u32 v) { memcpy(&sh4_ram[a & 0xffffff], &v, 4); }
 static void put16(u32 a, u16 v) { memcpy(&sh4_ram[a & 0xffffff], &v, 2); }
@@ -124,8 +124,7 @@ static void patch_main(void)
 	static const int order[MAIN_COUNT] = { 0, 1, 10, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 };
 	for (int i = 0; i < MAIN_COUNT; i++)
 		memcpy(&sh4_ram[(S_MAIN + (u32)i * 16) & 0xffffff], &sh4_ram[(MAIN_ITEMS + (u32)order[i] * 16) & 0xffffff], 16);
-	const u32 museum_colour = get32(MAIN_ITEMS + 6 * 16 + 8);
-	static const int ours[2] = { ONLINE_INDEX, GRAPHICS_INDEX };
+	const u32 museum_colour = get32(MAIN_ITEMS + 6 * 16 + 8);	static const int ours[2] = { ONLINE_INDEX, GRAPHICS_INDEX };
 	for (int k = 0; k < 2; k++)
 	{
 		const u32 it = S_MAIN + (u32)ours[k] * 16;
@@ -886,9 +885,11 @@ static void back_notice(u32 cur)
 	}
 }
 
-/* one lobby line: label, help line, value (type 2: the menu to return to) */
+/* one lobby line: label, help line, value (type 2: the menu to return to), colour (ARGB) */
+#define WHITE 0xffffffffu
+#define GREEN 0xff20ff20u	/* the main menu's green (MUSEUM, ONLINE VERSUS, GRAPHICS) */
 static int nlines;
-static void line(const char *label, const char *help, int value, int type)
+static void line_coloured(const char *label, const char *help, int value, int type, u32 colour)
 {
 	const int k = nlines++;
 	const u32 it = S_ITEMS + (u32)k * 16, lab = S_LINES + (u32)k * 32, hl = S_HELPS + (u32)k * 96;
@@ -899,7 +900,7 @@ static void line(const char *label, const char *help, int value, int type)
 	put16(it, (u16)type);
 	put16(it + 2, (u16)value);
 	put16(it + 4, (u16)id);
-	put32(it + 8, 0xffffffffu);
+	put32(it + 8, colour);
 	put32(it + 12, lab);
 	if (type != 2)
 	{
@@ -907,6 +908,15 @@ static void line(const char *label, const char *help, int value, int type)
 		put16(AVAIL + (u32)id * 4 + 2, 1);
 		set_help(id, hl);
 	}
+}
+static void line(const char *label, const char *help, int value, int type) { line_coloured(label, help, value, type, WHITE); }
+
+/* a newer release (the update check): a green UPDATE TO line that opens the release page */
+static void update_line(int value)
+{
+	char u[32];
+	snprintf(u, sizeof(u), "UPDATE TO %s", latest);
+	line_coloured(u, "Opens the download page in your browser.", value, 1, GREEN);
 }
 
 static void build_lines(u32 cur)
@@ -919,7 +929,7 @@ static void build_lines(u32 cur)
 	case L_SEARCH:
 		if (!npeers)
 			line("SEARCHING...", noted ? note : "Looking for players around the world.", V_STATUS, 1);
-		for (int i = 0; i < npeers; i++)
+		for (int i = 0; i < npeers && i < POOL_N - (latest[0] != 0); i++)	/* room for the UPDATE line */
 		{
 			if (peers[i].ping >= 0)
 			{
@@ -934,6 +944,8 @@ static void build_lines(u32 cur)
 			}
 			line(l, noted ? note : t, V_PEER + i, 1);
 		}
+		if (latest[0])
+			update_line(V_L_UPDATE);	/* last: the cursor starts on the first line */
 		line("TO MAIN MENU", "", 0, 2);
 		break;
 	case L_CHALLENGING:
@@ -1024,11 +1036,7 @@ static void build_graphics(u32 cur)
 			snprintf(l, sizeof(l), "VOLUME %d", vol);
 		line(vol ? l : "VOLUME OFF", "Sound volume. Select to change it.", V_G_VOLUME, 1);
 		if (latest[0])
-		{
-			char u[32];
-			snprintf(u, sizeof(u), "UPDATE TO %s", latest);
-			line(u, "Opens the download page in your browser.", V_G_UPDATE, 1);
-		}
+			update_line(V_G_UPDATE);
 		line("BACK", "Display, resolution, anti-aliasing, HUD.", V_G_FIRST, 1);
 	}
 	else
@@ -1114,6 +1122,8 @@ static void lobby_choose(int v)
 			match_token[0] = 0;
 		}
 	}
+	else if (v == V_L_UPDATE)
+		video_open_url(RELEASE_PAGE);
 	else if (v == V_DECLINE && lstate == L_CHALLENGED)
 	{
 		say(&other, "DECLINE", "");
@@ -1362,7 +1372,7 @@ void online_menu(SH4 *c, void (*f)(SH4 *))
 	}
 	f(c);
 	const u32 v = c->r[0];
-	if (slot_is_lobby && v >= V_PEER && v <= V_STATUS)
+	if (slot_is_lobby && v >= V_PEER && v <= V_L_UPDATE)
 	{
 		put32(cur + 0x28, 0);	/* cancel the menu's leave-the-mode countdown */
 		c->r[0] = 0x12;
