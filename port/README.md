@@ -825,7 +825,7 @@ rollbacks of two copies sharing one PC with 100 ms simulated latency.
 - **Idle fix**: the main menu returns to the title after 3600 frames (60 s) without input (mode
   11 handler 0x8c033a86, counter 0x8c25dcdc); the counter is held at 0 while ONLINE VERSUS or
   GRAPHICS is open, so waiting for an opponent no longer drops you to the attract demo.
-- **Version** (1.0.1; now 1.1.7): `VOLDORIUM_VERSION` in `m1/m1.h` (and the numbers in `m1/voldorium.rc`).
+- **Version** (1.0.1; now 1.1.8): `VOLDORIUM_VERSION` in `m1/m1.h` (and the numbers in `m1/voldorium.rc`).
   Shown in the window title ("Voldorium ver. 1.0.1") and, in game mode 11 (the main menu and its
   submenus), as "ver. 1.0.1" in the lower right corner: drawn by the port over the finished frame
   in the BIOS font's 12x24 glyphs (as the help line), white with a shadow (`render.c`
@@ -915,6 +915,11 @@ the CPU into one clean 640x480 picture (the main menu's is 80 tiles of 64x64; me
 text in front are left out), saved with the frame as shown. A picture is saved after it has
 stayed the same for 10 frames (no transitions, loading noise or zooms), once per look per game
 mode. Scrolling wallpapers are skipped: they already span 16:9.
+
+`M1_TEST_UNLOCK=1` shows an unlock announcement (CONGRATULATIONS!, game mode 52/53) a second into
+the main menu, as after an Arcade clear, without playing one (`online.c`): for its timing and its
+streamed fanfare (`M1_WAV`). The memory card save after it is sped up 8 times (`hw.c`), the
+announcement is not (issue 10).
 
 `bash tests/artdump.sh` runs the arcade script and each main-menu mode (`M1_MENU_PICK=menu:entry`
 chooses a main menu or Museum entry directly, `online.c`) and merges the results into

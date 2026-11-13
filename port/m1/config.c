@@ -67,6 +67,14 @@ static void find_exe_dir(void)
 		strcpy(exe_dir, ".");
 }
 
+/* the folder of the executable (screenshots go there, render.c) */
+const char *config_exe_dir(void)
+{
+	if (!exe_dir[0])
+		find_exe_dir();
+	return exe_dir;
+}
+
 const char *config_get(const char *section, const char *key)
 {
 	for (int i = 0; i < nini; i++)
@@ -163,6 +171,7 @@ static const char *const ini_notes[][3] = {
 	{ "audio", "enabled", "0: no sound at all (the game starts without an audio device)" },
 	{ "audio", "volume", "sound volume in percent, 0 to 200" },
 	{ "keys", "", "keyboard: SDL key names (Up, Z, Return, Left Shift...). a b x y = the Dreamcast buttons, l r = triggers" },
+	{ "pad", "", "controller shoulder buttons (lb rb) and triggers (lt rt): Dreamcast buttons a b x y l r start, joined with + for several at once (a+b)" },
 	{ "net", "port", "UDP port for online play (the lobby and manual connections)" },
 	{ "net", "peer", "manual connection only: the other player's address:port" },
 	{ "net", "player", "manual connection only: 1 or 2" },
@@ -188,7 +197,7 @@ void config_save(void)
 		return;
 	fprintf(f, "; Voldorium settings (README.txt has more). Most of them are also in the game: GRAPHICS\n"
 			   "; in the main menu. A line starting with ; is a note; changes here apply at the next start.\n");
-	static const char *order[] = { "game", "video", "audio", "keys", "net", "debug" };
+	static const char *order[] = { "game", "video", "audio", "keys", "pad", "net", "debug" };
 	for (unsigned s = 0; s < sizeof(order) / sizeof(order[0]); s++)
 	{
 		int any = 0;

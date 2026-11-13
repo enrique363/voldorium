@@ -1384,4 +1384,20 @@ void online_menu(SH4 *c, void (*f)(SH4 *))
 		c->r[0] = 0x12;
 		graphics_choose((int)v);
 	}
+	/* M1_TEST_UNLOCK=1 (tests): a second into the main menu, the unlock announcement
+	   (CONGRATULATIONS!, mode 52) for the character the flag 0x8c25dbfc bit 0 stands for, as the
+	   game shows it after an Arcade clear; then back to the main menu */
+	static int unlock_test = -1, unlock_calls;
+	if (unlock_test < 0)
+		unlock_test = getenv("M1_TEST_UNLOCK") != 0;
+	if (unlock_test && get32(cur) == 0 && ++unlock_calls == 60)
+	{
+		printf("online: unlock test\n");
+		put32(0x8c25dbfcu, get32(0x8c25dbfcu) | 1);
+		put32(0x8c24a590u, 14);	/* where the announcement returns to: the main menu */
+		const SH4 saved = *c;
+		c->r[4] = 0x34;
+		sh4_call(c, 0x8c0318a0u);	/* game_set_mode */
+		*c = saved;
+	}
 }

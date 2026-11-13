@@ -336,12 +336,18 @@ static void vblank_in(void)
 		   times as fast: 7 frames in 8 are neither shown, paced nor heard (as a GGPO
 		   re-simulation). It held 2.5 s on screen: one 128-byte write to the card per frame,
 		   then a wait. The game runs exactly the same frames. Not in online matches (netplay.c
-		   owns m1_resim there) or with M1_SAVEFAST=0. */
+		   owns m1_resim there) or with M1_SAVEFAST=0.
+		   Mode 53 first shows the unlock announcements (CONGRATULATIONS!, a picture and a
+		   streamed fanfare; 0x8c036ac0): those run at normal speed and are heard. The game
+		   shows one while 0x8c25bad4 (what was unlocked) is not -1 and step 0x8c24a6d4 is 0xc;
+		   the save follows at steps 6 to 10 (issue #10: the announcement flashed by and its
+		   music came out one frame in eight). */
 		static int on = -1;
 		static u32 n;
 		if (on < 0)
 			on = !getenv("M1_NET") && !(getenv("M1_SAVEFAST") && !atoi(getenv("M1_SAVEFAST")));
-		if (on && m == 53 && !m1_net_active)
+		const int announcing = rd32(0x8c25bad4) != 0xffffffffu && rd32(0x8c24a6d4) == 0xc;
+		if (on && m == 53 && !announcing && !m1_net_active)
 			m1_resim = (++n & 7) != 0;
 		else if (n)
 			m1_resim = 0, n = 0;

@@ -113,6 +113,8 @@ static int gl_load(void) { return 1; }
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <time.h>
+#include <sys/stat.h>
 #ifndef _WIN32
 #include <spawn.h>
 extern char **environ;
@@ -128,7 +130,11 @@ static SDL_GLContext glc;
 static SDL_GameController *pads[2];	/* player 1 (with the keyboard), player 2 */
 static int enabled = -1;
 static GLuint prog, vao, vbo;
-static GLint u_tex, u_mode, u_flags, u_alpha_ref, u_target, u_xmap, u_umap, u_xoff, u_fog, u_fog_col, u_ymap;
+static GLint u_tex, u_mode, u_flags, u_alpha_ref, u_target, u_xmap, u_umap, u_xoff, u_fog, u_fog_col, u_ymap, u_xzoom;
+/* the picture's shape (width / height, 4:3 to 16:9) and its zoom: the game is simulated and drawn for
+   16:9 (Hor+, the same for every player, also online); a narrower picture shows its middle */
+static float view_aspect = 16.0f / 9, view_zoom = 1;
+static int player_shot;	/* F12 pressed: a screenshot after the next frame (player_screenshot) */
 /* viewport of the current target, for user tile clip scissors */
 static int vp_x, vp_y, vp_w, vp_h, tgt_w = 640, tgt_h = 480;
 static u32 buttons, buttons_b;	/* window input: player 1 (keyboard, first controller), player 2 */
@@ -149,11 +155,13 @@ static const char *vs_src =
 	"uniform vec2 umap;    // texture u' = umap.x + (u - umap.x) * umap.y\n"
 	"uniform float xoff;   // added after the x mapping (copies of tiled layers)\n"
 	"uniform vec2 ymap;	// y' = ymap.x + (y - ymap.x) * ymap.y (blur fill only)\n"
+	"uniform float xzoom;  // the picture's shape: 16:9 is 1, narrower shapes show less of the sides\n"
 	"void main() {\n"
 	"  v_bad = any(isinf(pos)) || any(isnan(pos)) ? 1.0 : 0.0;\n"
 	"  float iw = clamp(pos.z, 1e-7, 1e30);\n"
 	"  vec2 p = clamp(pos.xy, vec2(-1e30), vec2(1e30));\n"
 	"  float x = xmap.x + (p.x - xmap.x) * xmap.y + xoff;\n"
+	"  x = target.x * 0.5 + (x - target.x * 0.5) * xzoom;\n"
 	"  float y = ymap.x + (p.y - ymap.x) * ymap.y;\n"
 	"  gl_Position = vec4(x * 2.0 / target.x - 1.0, 1.0 - y * 2.0 / target.y, 0.0, 1.0);\n"
 	"  v_uvw = vec3(vec2(umap.x + (uv.x - umap.x) * umap.y, uv.y) * iw, iw);\n"
@@ -283,6 +291,14 @@ static void display_size(int *w, int *h)
 		*w = m.w, *h = m.h;
 }
 
+/* a picture's shape (width / height) for a w x h area: 4:3 to 16:9 (wider screens get bars at
+   the sides, narrower ones at the top and bottom) */
+static float picture_aspect(int w, int h)
+{
+	const float a = h > 0 ? (float)w / (float)h : 16.0f / 9;
+	return a > 16.0f / 9 ? 16.0f / 9 : a < 4.0f / 3 ? 4.0f / 3 : a;
+}
+
 /* a window: the chosen resolution's size (native: M1_WINDOW or 1280x720), shrunk to fit the
    screen's usable area */
 static void window_fit(void)
@@ -295,10 +311,11 @@ static void window_fit(void)
 	SDL_Rect u;
 	if (!SDL_GetDisplayUsableBounds(SDL_GetWindowDisplayIndex(win), &u) && (w > u.w * 9 / 10 || h > u.h * 9 / 10))
 	{
+		const float a = picture_aspect(w, h);
 		h = u.h * 9 / 10;
-		w = h * 16 / 9;
+		w = (int)(h * a + 0.5f);
 		if (w > u.w * 9 / 10)
-			w = u.w * 9 / 10, h = w * 9 / 16;
+			w = u.w * 9 / 10, h = (int)(w / a + 0.5f);
 	}
 	SDL_SetWindowSize(win, w, h);
 	SDL_SetWindowPosition(win, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
@@ -350,18 +367,27 @@ void video_toggle_fullscreen(void)
 	setting_env("M1_FULLSCREEN", full ? "1" : "0");
 }
 
-/* the resolutions offered: native, then the usual 16:9 sizes up to the monitor's */
-static const int sizes[][2] = { { 1280, 720 }, { 1600, 900 }, { 1920, 1080 }, { 2560, 1440 }, { 3200, 1800 }, { 3840, 2160 },
-								{ 5120, 2880 }, { 7680, 4320 } };
+/* the resolutions offered: native (the screen's shape, 4:3 to 16:9), then the usual 16:9, 16:10
+   and 4:3 sizes up to the monitor's, by height */
+static const int sizes[][2] = { { 1280, 720 }, { 1024, 768 }, { 1280, 800 }, { 1600, 900 }, { 1680, 1050 }, { 1920, 1080 },
+								{ 1440, 1080 }, { 1920, 1200 }, { 1600, 1200 }, { 2560, 1440 }, { 1920, 1440 }, { 2560, 1600 },
+								{ 3200, 1800 }, { 3840, 2160 }, { 2880, 2160 }, { 3840, 2400 }, { 5120, 2880 }, { 7680, 4320 } };
 
 void video_resolution_label(char *buf, size_t n)
 {
 	int w, h;
 	display_size(&w, &h);
+	if (win && !video_is_fullscreen())
+		SDL_GL_GetDrawableSize(win, &w, &h);	/* in a window, native is the window's size */
 	if (res_w)
 		snprintf(buf, n, "%d X %d", res_w, res_h);
 	else
-		snprintf(buf, n, "NATIVE %d X %d", w, h * 16 / 9 > w ? w * 9 / 16 : h);
+	{
+		/* the screen's (or window's) size in the picture's shape */
+		const float a = picture_aspect(w, h);
+		const int pw = (int)(h * a + 0.5f) > w ? w : (int)(h * a + 0.5f), ph = (int)(pw / a + 0.5f) > h ? h : (int)(pw / a + 0.5f);
+		snprintf(buf, n, "NATIVE %d X %d", pw, ph);
+	}
 }
 
 void video_next_resolution(void)
@@ -494,10 +520,58 @@ static void pad_removed(SDL_JoystickID id)
 			pads[k] = 0;
 		}
 }
+/* what the shoulder buttons and triggers press ([pad] lb rb lt rt in voldorium.ini): Dreamcast
+   buttons joined with +, e.g. "a+b" (the game's Button Config then maps them to moves). The
+   default is the Dreamcast's L (lb, lt) and R (rb, rt). A combination is one input to netplay,
+   like any button. */
+const char *config_get(const char *section, const char *key);
+static u32 pad_combo_bits(const char *s, u32 def)
+{
+	if (!s || !*s)
+		return def;
+	static const struct { const char *name; u32 bit; } names[] = {
+		{ "a", 0x0004 }, { "b", 0x0002 }, { "x", 0x0400 }, { "y", 0x0200 }, { "l", 0x1000 }, { "r", 0x2000 },
+		{ "start", 0x0008 },
+	};
+	u32 b = 0;
+	char buf[64];
+	snprintf(buf, sizeof(buf), "%s", s);
+	for (char *t = strtok(buf, "+ \t"); t; t = strtok(0, "+ \t"))
+	{
+		u32 bit = 0;
+		for (unsigned i = 0; i < sizeof(names) / sizeof(names[0]); i++)
+			if (!SDL_strcasecmp(t, names[i].name))
+				bit = names[i].bit;
+		if (!bit)
+		{
+			printf("voldorium.ini [pad]: unknown button \"%s\" in \"%s\" (a b x y l r start)\n", t, s);
+			return def;
+		}
+		b |= bit;
+	}
+	return b;
+}
+static u32 pad_combo[4];	/* lb, rb, lt, rt */
+static void pad_combos_load(void)
+{
+	static const char *const keys[4] = { "lb", "rb", "lt", "rt" };
+	static const u32 defs[4] = { 0x1000, 0x2000, 0x1000, 0x2000 };
+	for (int i = 0; i < 4; i++)
+	{
+		char env[16];
+		snprintf(env, sizeof(env), "M1_PAD_%c%c", keys[i][0] - 32, keys[i][1] - 32);	/* M1_PAD_LT (tests) */
+		const char *v = getenv(env);
+		pad_combo[i] = pad_combo_bits(v ? v : config_get("pad", keys[i]), defs[i]);
+	}
+	printf("pad: lb %04x rb %04x lt %04x rt %04x (Dreamcast button bits)\n", pad_combo[0], pad_combo[1], pad_combo[2], pad_combo[3]);
+}
+
 static u32 pad_bits(SDL_GameController *pad)
 {
 	if (!pad)
 		return 0;
+	if (!pad_combo[0])
+		pad_combos_load();
 	u32 b = 0;
 	/* left stick as the D-pad */
 	const int dz = 16000;
@@ -506,16 +580,17 @@ static u32 pad_bits(SDL_GameController *pad)
 	if (ax > dz) b |= 0x0080;
 	if (ay < -dz) b |= 0x0010;
 	if (ay > dz) b |= 0x0020;
-	/* triggers, or the shoulder buttons */
-	if (SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_TRIGGERLEFT) > dz) b |= 0x1000;
-	if (SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > dz) b |= 0x2000;
+	/* triggers and shoulder buttons: [pad] lt rt lb rb */
+	if (SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_TRIGGERLEFT) > dz) b |= pad_combo[2];
+	if (SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > dz) b |= pad_combo[3];
+	if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_LEFTSHOULDER)) b |= pad_combo[0];
+	if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER)) b |= pad_combo[1];
 	static const struct { int btn; u32 bit; } map[] = {
 		{ SDL_CONTROLLER_BUTTON_A, 0x0004 }, { SDL_CONTROLLER_BUTTON_B, 0x0002 },
 		{ SDL_CONTROLLER_BUTTON_X, 0x0400 }, { SDL_CONTROLLER_BUTTON_Y, 0x0200 },
 		{ SDL_CONTROLLER_BUTTON_START, 0x0008 }, { SDL_CONTROLLER_BUTTON_DPAD_UP, 0x0010 },
 		{ SDL_CONTROLLER_BUTTON_DPAD_DOWN, 0x0020 }, { SDL_CONTROLLER_BUTTON_DPAD_LEFT, 0x0040 },
 		{ SDL_CONTROLLER_BUTTON_DPAD_RIGHT, 0x0080 },
-		{ SDL_CONTROLLER_BUTTON_LEFTSHOULDER, 0x1000 }, { SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, 0x2000 },
 	};
 	for (unsigned i = 0; i < sizeof(map) / sizeof(map[0]); i++)
 		if (SDL_GameControllerGetButton(pad, map[i].btn))
@@ -548,6 +623,7 @@ int video_enabled(void)
 	/* the picture is drawn into a frame buffer of its own (resolution and anti-aliasing,
 	   see "frame buffer" below); the window only shows it */
 	video_settings_load();
+	pad_combos_load();
 	int win_w = 1280, win_h = 720;
 	if (getenv("M1_WINDOW"))
 		sscanf(getenv("M1_WINDOW"), "%dx%d", &win_w, &win_h);
@@ -595,6 +671,8 @@ int video_enabled(void)
 	u_xmap = glGetUniformLocation(prog, "xmap");
 	u_umap = glGetUniformLocation(prog, "umap");
 	u_xoff = glGetUniformLocation(prog, "xoff");
+	u_xzoom = glGetUniformLocation(prog, "xzoom");
+	glUniform1f(u_xzoom, 1);
 	glUniform1i(u_tex, 0);
 	glGenVertexArrays(1, &vao);
 	glBindVertexArray(vao);
@@ -683,6 +761,8 @@ void video_poll(void)
 			{
 				video_toggle_fullscreen();	/* remembered in voldorium.ini */
 			}
+			else if (k == SDLK_F12)
+				player_shot = 1;	/* saved after the next frame (player_screenshot) */
 			else if (k == SDLK_ESCAPE)
 			{
 				if (getenv("M1_NET_PRELUDE"))
@@ -851,6 +931,47 @@ static u32 background_colour(void)
 	const u32 isp = vram_rd32_map32(addr);
 	const u32 colword = 3 + 3 + (((isp >> 25) & 1) ? 2 : 0);
 	return vram_rd32_map32(addr + colword * 4);
+}
+
+/* F12: the next finished picture (at the drawing resolution, without the window's bars) as
+   screenshots/Voldorium <date> <time>.png next to the executable. Xbox Game Bar captures nothing
+   from this OpenGL window, so the game takes its own (issue #10). */
+static void player_screenshot(int w, int h)
+{
+	u8 *px = malloc((size_t)w * h * 3), *top = malloc((size_t)w * h * 3);
+	if (!px || !top)
+	{
+		free(px), free(top);
+		return;
+	}
+	glPixelStorei(GL_PACK_ALIGNMENT, 1);
+	glReadPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE, px);
+	for (int y = 0; y < h; y++)
+		memcpy(top + (size_t)y * w * 3, px + (size_t)(h - 1 - y) * w * 3, (size_t)w * 3);
+	const char *config_exe_dir(void);
+	int png_write_rgb(const char *path, const u8 *rgb, u32 w, u32 h);
+	char dir[1100], path[1200];
+	snprintf(dir, sizeof(dir), "%s/screenshots", config_exe_dir());
+#ifdef _WIN32
+	CreateDirectoryA(dir, 0);
+#else
+	mkdir(dir, 0755);
+#endif
+	const time_t now = time(0);
+	char stamp[32];
+	strftime(stamp, sizeof(stamp), "%Y-%m-%d %H-%M-%S", localtime(&now));
+	snprintf(path, sizeof(path), "%s/Voldorium %s.png", dir, stamp);
+	for (int k = 2; k < 100; k++)
+	{
+		FILE *f = fopen(path, "rb");	/* two in one second: "... (2).png" */
+		if (!f)
+			break;
+		fclose(f);
+		snprintf(path, sizeof(path), "%s/Voldorium %s (%d).png", dir, stamp, k);
+	}
+	const int ok = png_write_rgb(path, top, (u32)w, (u32)h);
+	printf("screenshot %s (%dx%d): %s\n", path, w, h, ok ? "saved" : "could not be written");
+	free(px), free(top);
 }
 
 static void screenshot(u64 n, int w, int h)
@@ -1043,8 +1164,14 @@ void video_next_text(void)
 
 static float side_anchor(float cx)
 {
-	static const float left[3] = { 0, 160, 320 };
-	return cx < 280 ? left[video_hud()] : cx > 360 ? 640 - left[video_hud()] : 320;
+	/* the 4:3 screen's left edge (x 0, squeezed by 0.75 about the anchor) lands on the picture's
+	   left edge (EDGES), halfway between it and where 4:3 shows it (MIDDLE), or there (4:3, x 80);
+	   the right edge likewise. A picture narrower than 16:9 has its edge at 320 - 320 / view_zoom.
+	   An anchor a puts x 0 at a * (1 - 0.75), so a = 4 * that place: 0, 160, 320 in 16:9 */
+	const float edge = 320 - 320 / view_zoom;
+	const float place[3] = { edge, (edge + 80) / 2, 80 };
+	const float a = 4 * place[video_hud()];
+	return cx < 280 ? a : cx > 360 ? 640 - a : 320;
 }
 
 /* the anchor of the largest panel around (x, y) (a margin takes in the panels' corner pieces),
@@ -1834,12 +1961,13 @@ static void draw_lists(TaCtx *c)
 			float xa, xk, ua, uk;
 			wide_map(c, p, &xa, &xk, &ua, &uk);
 			if (replaced == 2 && bg_layer[idx[j]])
-				xa = 320, xk = 1, ua = 0, uk = 1;	/* stretched background: full width */
+				xa = 320, xk = 1 / view_zoom, ua = 0, uk = 1;	/* stretched background: the picture's full width */
 			glUniform2f(u_xmap, xa, xk);
 			glUniform2f(u_umap, ua, uk);
 			if (p->clip == 2)
 			{
-				const float cx0 = xa + (p->clip_rect[0] - xa) * xk, cx1 = xa + (p->clip_rect[2] - xa) * xk;
+				const float cx0 = 320 + (xa + (p->clip_rect[0] - xa) * xk - 320) * view_zoom,
+							cx1 = 320 + (xa + (p->clip_rect[2] - xa) * xk - 320) * view_zoom;
 				const int x0 = vp_x + (int)(cx0 * vp_w / tgt_w), x1 = vp_x + (int)(cx1 * vp_w / tgt_w);
 				const int y0 = vp_y + vp_h - p->clip_rect[3] * vp_h / tgt_h, y1 = vp_y + vp_h - p->clip_rect[1] * vp_h / tgt_h;
 				glEnable(GL_SCISSOR_TEST);
@@ -1915,6 +2043,7 @@ static void render_to_texture(TaCtx *c)
 	glBindFramebuffer(GL_FRAMEBUFFER, rtt_fbo);
 	glViewport(0, 0, (GLsizei)w, (GLsizei)h);
 	glUniform2f(u_target, (float)w, (float)h);
+	glUniform1f(u_xzoom, 1);
 	vp_x = vp_y = 0; vp_w = tgt_w = (int)w; vp_h = tgt_h = (int)h;
 	const u32 bg = background_colour();
 	glClearColor(((bg >> 16) & 255) / 255.0f, ((bg >> 8) & 255) / 255.0f, (bg & 255) / 255.0f, (bg >> 24) / 255.0f);
@@ -2254,9 +2383,13 @@ static void render_frame_draw(TaCtx *c)
 	glUniform2f(u_target, 640.0f, 480.0f);
 	int ww, wh;
 	SDL_GL_GetDrawableSize(win, &ww, &wh);
-	/* 16:9 picture centred in the window, drawn at the chosen resolution (native: the window's) */
-	int vw = ww, vh = ww * 9 / 16;
-	if (vh > wh) { vh = wh; vw = wh * 16 / 9; }
+	/* the picture centred in the window, drawn at the chosen resolution; its shape is the
+	   resolution's (native: the window's), from 4:3 to 16:9 */
+	view_aspect = picture_aspect(res_w ? res_w : ww, res_w ? res_h : wh);
+	view_zoom = (16.0f / 9) / view_aspect;
+	glUniform1f(u_xzoom, view_zoom);
+	int vw = ww, vh = (int)(ww / view_aspect + 0.5f);
+	if (vh > wh) { vh = wh; vw = (int)(wh * view_aspect + 0.5f); }
 	const int rw = res_w ? res_w : vw, rh = res_w ? res_h : vh;
 	frame_target(rw, rh);
 	glBindFramebuffer(GL_FRAMEBUFFER, frame_fbo);
@@ -2321,6 +2454,18 @@ static void render_frame_draw(TaCtx *c)
 		if (shots[i] == rendered)
 			screenshot(rendered, rw, rh);
 	{
+		static long long at = -2;	/* M1_SCREENSHOT_AT=n (tests): as F12 at render n */
+		if (at == -2)
+			at = getenv("M1_SCREENSHOT_AT") ? atoll(getenv("M1_SCREENSHOT_AT")) : -1;
+		if ((long long)rendered == at)
+			player_shot = 1;
+	}
+	if (player_shot)
+	{
+		player_shot = 0;
+		player_screenshot(rw, rh);
+	}
+	{
 		int art_frame(const TaCtx *c);
 		void art_shot(const u8 *rgb, int w, int h);
 		if (art_frame(c))
@@ -2332,7 +2477,7 @@ static void render_frame_draw(TaCtx *c)
 			free(px);
 		}
 	}
-	/* to the window, scaled to its 16:9 area */
+	/* to the window, scaled to the picture's area */
 	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
 	glViewport(0, 0, ww, wh);
 	glClearColor(0, 0, 0, 1);

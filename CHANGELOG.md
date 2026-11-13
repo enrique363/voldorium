@@ -2,6 +2,35 @@
 
 All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); see the README.
 
+## 1.1.8 (2026-11-13)
+
+### Added
+- **16:10 and other screen shapes** (enrique363/voldorium#10): the picture takes the shape of the
+  resolution, from 4:3 to 16:9. NATIVE follows your screen, so a 16:10 monitor or the Steam
+  Deck is filled instead of showing bars above and below; GRAPHICS also offers 16:10 sizes
+  (1280x800, 1680x1050, 1920x1200, 2560x1600...) and 4:3 sizes (1024x768, 1440x1080, 1600x1200...;
+  4:3 shows the game as framed on the Dreamcast). A narrower picture shows a little less at the
+  sides; the HUD placements (EDGES, MIDDLE, 4:3) follow its edges (at 4:3 all three are the
+  original HUD). The game itself stays the 16:9 game, so players with different screens still
+  meet online.
+- **Shoulder buttons and triggers** (enrique363/voldorium#10): `[pad] lb rb lt rt` in
+  `voldorium.ini` set what each presses: a Dreamcast button or several at once (`lt = a+b`).
+  They no longer have to repeat L and R.
+- **F12 takes a screenshot** (enrique363/voldorium#10): a PNG of the picture at the drawing
+  resolution, in a `screenshots` folder next to the game. Xbox Game Bar shows its overlay but
+  captures nothing from the game's OpenGL window.
+
+### Fixed
+- **Unlock announcements** (enrique363/voldorium#10): the CONGRATULATIONS! screens that show a new
+  character, stage, costume or mode (after an Arcade clear, for example) ran 8 times too fast
+  and their fanfare came out in fragments. They shared their game mode with the memory card save
+  that follows, which Voldorium speeds up; now only the save is sped up, and the announcements
+  run and sound as on the Dreamcast, with either LOADING setting.
+- **Online Versus has the full roster**: online matches run without a memory card (both players
+  must run the same game), so character select had only the starting characters, one row. Both
+  players now get every character, stage, costume and extra mode unlocked in online matches, the
+  same on both sides and never from either player's card.
+
 ## 1.1.7 (2026-11-09)
 
 ### Changed

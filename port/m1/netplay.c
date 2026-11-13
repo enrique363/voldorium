@@ -528,6 +528,19 @@ void netplay_hook(SH4 *c)
 	}
 	if (!on)
 		return;
+	{
+		/* Online matches have no memory card (maple.c: both sides must run the same game), so
+		   the game starts with a new player's roster: one row of characters. Both sides get
+		   everything unlocked instead, the same on both, never from either player's card: each
+		   character's record at 0x8c336dfa + 4 * c (above 0: unlocked, character 10 has none),
+		   stages (0x8c336e60), Inferno and the extra modes (0x8c336e64), costumes (0x8c336e68).
+		   Written every loop from the first one, before character select builds its roster. */
+		for (u32 c = 1; c <= 20; c++)
+			wr32(0x8c336df8u + 4 * c, c == 10 ? 0x0000ffffu : 0x00010001u);
+		wr32(0x8c336e60u, 0x007f7300u);
+		wr32(0x8c336e64u, 0x0000007fu);
+		wr32(0x8c336e68u, 0x0037fbfeu);
+	}
 	static int booting = 1;
 	if (prelude && booting)
 	{

@@ -348,6 +348,9 @@ int art_frame(const TaCtx *c)
 	return 1;
 }
 
+/* an RGB picture, top row first, as a PNG (render.c: the F12 screenshot) */
+int png_write_rgb(const char *path, const u8 *rgb, u32 w, u32 h) { return write_png(path, rgb, w, h, 3); }
+
 /* the frame as shown (rgb: w x h, bottom row first, as glReadPixels gives it) */
 void art_shot(const u8 *rgb, int w, int h)
 {

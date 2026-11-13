@@ -6,7 +6,8 @@ A native Windows and Linux port of the Dreamcast fighting game **SoulCalibur** (
 made by static recompilation: the game's SH-4 machine code is translated into C and compiled
 together with a small native runtime that stands in for the Dreamcast hardware. It adds:
 
-- 16:9 widescreen (3D scene widened; HUD, menus and text kept at their true proportions)
+- widescreen: 16:9, or your screen's shape down to 4:3 (16:10 monitors, the Steam Deck); the 3D scene
+  widened, HUD, menus and text kept at their true proportions
 - any resolution, full screen at the desktop's native resolution, multisample anti-aliasing
 - **Online Versus** in the game's own main menu: a worldwide lobby with matchmaking, ping,
   accept/decline, NAT hole punching with a relay fallback, and GGPO rollback netcode
@@ -203,6 +204,8 @@ resolution; the main menu's **GRAPHICS** entry changes resolution, full screen,
 anti-aliasing, VSync and where the fight HUD sits (as in the original 4:3 game by default,
 halfway out, or at the screen's edges); its second page, **MORE SETTINGS**, has loading speed
 (original or fast), how 4:3 menu pictures fill 16:9, sharp or smooth text, and the sound volume.
+**F12** saves a screenshot (PNG, in the `screenshots` folder next to the game; Xbox Game Bar
+cannot capture the game's window).
 Controllers and keyboard go through SDL2.
 
 **Online Versus** is on the main menu. It lists players around the world (and on your local
@@ -225,7 +228,7 @@ closed.
 | | `vmu` | file | | The memory card (default `vmu_a1.bin` next to the game). |
 | | `update_check` | `1`, `0` | | Asks the lobby server for a newer version at the main menu (sends only the version). |
 | `[video]` | `fullscreen` | `1`, `0` | ✓ | Full screen or a window (also Alt+Enter / F11). |
-| | `resolution` | `native`, `1920x1080`... | ✓ | The size the game is drawn at: your monitor's, or a 16:9 size. |
+| | `resolution` | `native`, `1920x1080`, `1920x1200`... | ✓ | The size the game is drawn at, and its shape: your monitor's (from 4:3 to 16:9; wider screens get side bars), or a 16:9, 16:10 or 4:3 size. |
 | | `window` | `1280x720`... | | The window's size when not full screen. |
 | | `msaa` | `0`, `2`, `4`, `8` | ✓ | Anti-aliasing. |
 | | `vsync` | `1`, `0` | ✓ | On: no tearing. Off: lowest input delay. |
@@ -235,6 +238,7 @@ closed.
 | `[audio]` | `enabled` | `1`, `0` | | `0`: no sound at all. |
 | | `volume` | `0` to `200` | ✓ | Sound volume in percent (the menu steps 0, 25, 50, 75, 100). |
 | `[keys]` | `up down left right a b x y start l r` | SDL key names | | Keyboard controls (`Up`, `Z`, `Return`...). |
+| `[pad]` | `lb rb lt rt` | `l`, `r`, `a+b`... | | What a controller's shoulder buttons and triggers press: Dreamcast buttons (`a b x y l r start`), `+` for several at once. Default: L and R. |
 | `[net]` | `name` | text | | Your nickname in the Online Versus lobby (empty: OPPONENT). |
 | | `port` | `7000` | | UDP port for online play. |
 | | `delay` | frames, `2` | | Fight input delay online; rollback covers the rest. |
@@ -259,8 +263,9 @@ Online Versus matches Deck, Linux and Windows players of the same version.
   under Wine 10 (boot, menus, fights, and a lobby match against a Windows PC).
 
 The Deck's controls work as a controller (Steam Input). Its 1280x800 screen shows the game in
-16:9 with thin bars above and below: the game's picture is 16:9 on every screen, so that online
-players see the same game. The defaults (full screen, VSync on) suit the Deck's 60 Hz screen.
+16:10 at the native resolution: the picture takes the screen's shape (from 4:3 to 16:9) by
+showing a little less at the sides. The game itself is the same 16:9 game on every screen, so
+online players still meet whatever their screens. The defaults (full screen, VSync on) suit the Deck's 60 Hz screen.
 
 ## Hosting a lobby server
 
