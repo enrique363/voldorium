@@ -208,11 +208,34 @@ halfway out, or at the screen's edges); its second page, **MORE SETTINGS**, has 
 cannot capture the game's window).
 Controllers and keyboard go through SDL2.
 
+**Controls.** Keyboard: arrow keys = D-pad, Z X A S = the Dreamcast's A B X Y, Q / W = L / R,
+Enter = Start (`[keys]` in `voldorium.ini`). A controller (Xbox layout) plays with its face
+buttons, D-pad or left stick and Start; its shoulder buttons and triggers press L and R. Each of
+LB, RB, LT and RT can press other Dreamcast buttons instead, or several at once, set in
+`voldorium.ini` while the game is closed:
+
+```ini
+[pad]
+lb = l
+rb = r
+lt = a+b
+rt = b+y
+```
+
+Button names are `a b x y l r start`, joined with `+`. What each Dreamcast button does in a fight
+is set by the game's own Button Config (OPTIONS). A second controller is player 2 for VS BATTLE.
+Combinations are ordinary inputs, so they work online too.
+
 **Online Versus** is on the main menu. It lists players around the world (and on your local
 network) who are searching with the same build. Pick one to challenge; the other player sees
 your ping and accepts or declines. Players are shown as OPPONENT unless they set a nickname
 (`[net] name = ...` in `voldorium.ini`); computer names are never sent. Both players must have
 built from the same sources: the lobby only matches identical builds.
+
+Online matches run without your memory card, so both players run exactly the same game. Instead,
+both players get **everything unlocked** from the start, whatever their own saves hold: every
+character (two full rows at character select), stage, costume and extra mode. Nothing from an
+online match is saved to your card.
 
 ### Settings (`voldorium.ini`)
 

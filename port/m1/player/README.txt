@@ -72,6 +72,9 @@ networks), or the lobby stays empty.
 Players on other networks (over the internet) appear in the same list, through the lobby
 server: still no ports to set. If your router blocks a direct connection, the match goes
 through the server's relay automatically.
+Online matches run without your memory card (both players must run exactly the same game), so
+both players get everything unlocked from the start, whatever their own saves hold: every
+character, stage, costume and extra mode. Nothing from an online match is saved to your card.
 
 Linux
 -----
