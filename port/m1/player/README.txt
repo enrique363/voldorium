@@ -35,7 +35,8 @@ fight is cut short; online matches always load at the original speed), backgroun
 (see 16:9 pictures below) and the sound volume (100, off, 25, 50, 75). Changes apply at once
 and are saved in voldorium.ini; every setting is listed under "voldorium.ini" below. Alt+Enter
 or F11: full screen on/off. F12: a screenshot (PNG, in the screenshots folder next to the
-game; Xbox Game Bar cannot capture the game's window). Esc: quit (during an online match: leave it and go back to the main
+game; Xbox Game Bar cannot capture the game's window). EXIT GAME (the last main menu entry)
+or Esc: quit (during an online match: leave it and go back to the main
 menu; if a match is cut off, both players return there).
 
 VSync

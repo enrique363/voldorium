@@ -502,6 +502,19 @@ void netplay_hook(SH4 *c)
 			}
 		}
 	}
+	{
+		/* M1_TEST_STAGE=n (tests): the stage chosen at stage select is n (the stage name table
+		   0x8c21ae6c: 9 City of Water, 12 Water Labyrinth...), held during character select */
+		static int stage = -2;
+		if (stage == -2)
+			stage = getenv("M1_TEST_STAGE") ? atoi(getenv("M1_TEST_STAGE")) : -1;
+		if (stage >= 0 && rd32(0x8c24a584) == 15)
+		{
+			wr32(0x8c25b8bcu, (u32)stage);
+			wr32(0x8c25b8c0u, (u32)stage);
+			wr32(0x8c25bc88u, (u32)stage);
+		}
+	}
 	static int on = -1, back;
 	if (on < 0)
 	{

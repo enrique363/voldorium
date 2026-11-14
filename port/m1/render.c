@@ -28,6 +28,7 @@
 #include <GL/gl.h>
 #include <GL/glext.h>
 #define GL_FUNCS(X) \
+	X(PFNGLACTIVETEXTUREPROC, glActiveTexture) \
 	X(PFNGLATTACHSHADERPROC, glAttachShader) \
 	X(PFNGLBINDBUFFERPROC, glBindBuffer) \
 	X(PFNGLBINDFRAMEBUFFERPROC, glBindFramebuffer) \
@@ -64,6 +65,7 @@
 #define X(T, n) static T p_##n;
 GL_FUNCS(X)
 #undef X
+#define glActiveTexture p_glActiveTexture
 #define glAttachShader p_glAttachShader
 #define glBindBuffer p_glBindBuffer
 #define glBindFramebuffer p_glBindFramebuffer
@@ -131,6 +133,8 @@ static SDL_GameController *pads[2];	/* player 1 (with the keyboard), player 2 */
 static int enabled = -1;
 static GLuint prog, vao, vbo;
 static GLint u_tex, u_mode, u_flags, u_alpha_ref, u_target, u_xmap, u_umap, u_xoff, u_fog, u_fog_col, u_ymap, u_xzoom;
+static GLint u_fog_col_ram, u_fog_density, u_fog_tab;
+static GLuint fog_tex;
 /* the picture's shape (width / height, 4:3 to 16:9) and its zoom: the game is simulated and drawn for
    16:9 (Hor+, the same for every player, also online); a narrower picture shows its middle */
 static float view_aspect = 16.0f / 9, view_zoom = 1;
@@ -178,6 +182,18 @@ static const char *fs_src =
 	"uniform float alpha_ref; // PT_ALPHA_REF (0-255), < 0: no alpha test\n"
 	"uniform int fog;       // TSP fog mode: 1 = per vertex (offset alpha)\n"
 	"uniform vec3 fog_col;  // FOG_COL_VERT\n"
+	"uniform vec3 fog_col_ram; // FOG_COL_RAM (table fog)\n"
+	"uniform float fog_density; // FOG_DENSITY as a number\n"
+	"uniform sampler2D fog_tab; // FOG_TABLE: 128 x 2 (row 0 the low bytes, row 1 the high bytes)\n"
+	"// table fog (as the PowerVR, and Flycast): the index is a log scale of 1/w * FOG_DENSITY,\n"
+	"// 16 entries per power of two, interpolated between an entry's high and low byte\n"
+	"float fog_table(float iw) {\n"
+	"  float z = clamp(iw * fog_density, 1.0, 255.9999);\n"
+	"  float e = floor(log2(z));\n"
+	"  float m = z * 16.0 / exp2(e) - 16.0;\n"
+	"  float i = floor(m) + e * 16.0 + 0.5;\n"
+	"  return texture(fog_tab, vec2(i / 128.0, 0.75 - (m - floor(m)) / 2.0)).r;\n"
+	"}\n"
 	"out vec4 frag;\n"
 	"void main() {\n"
 	"  if (v_bad > 0.0) discard;  // the PowerVR cannot set such a triangle up and drops it\n"
@@ -197,6 +213,8 @@ static const char *fs_src =
 	"    if ((flags & 4) != 0) c.rgb += ofs.rgb;\n"
 	"  }\n"
 	"  if (fog == 1) c.rgb = mix(c.rgb, fog_col, ofs.a);\n"
+	"  else if (fog == 0) c.rgb = mix(c.rgb, fog_col_ram, fog_table(v_uvw.z));\n"
+	"  else if (fog == 3) c = vec4(fog_col_ram, fog_table(v_uvw.z));\n"
 	"  // the PowerVR compares 8-bit alphas: alpha 1.0 interpolated across a polygon comes out a\n"
 	"  // hair below 1.0 in floats and would fail PT_ALPHA_REF 255\n"
 	"  if (alpha_ref >= 0.0 && floor(c.a * 255.0 + 0.5) < alpha_ref) discard;\n"
@@ -665,6 +683,10 @@ int video_enabled(void)
 	u_alpha_ref = glGetUniformLocation(prog, "alpha_ref");
 	u_fog = glGetUniformLocation(prog, "fog");
 	u_fog_col = glGetUniformLocation(prog, "fog_col");
+	u_fog_col_ram = glGetUniformLocation(prog, "fog_col_ram");
+	u_fog_density = glGetUniformLocation(prog, "fog_density");
+	u_fog_tab = glGetUniformLocation(prog, "fog_tab");
+	glUniform1i(u_fog_tab, 1);	/* texture unit 1 */
 	u_target = glGetUniformLocation(prog, "target");
 	u_ymap = glGetUniformLocation(prog, "ymap");
 	glUniform2f(u_ymap, 0, 1);
@@ -690,12 +712,28 @@ int video_enabled(void)
 	return enabled;
 }
 
+/* a texture's pixels. A texture re-uploaded at the same size (animated textures, palette cycling:
+   five a frame in Inferno's defeat, issue #11) gets new contents in its existing storage
+   (glTexSubImage2D): re-creating the storage of a texture the previous frame may still be drawing
+   with can make a driver wait for the GPU */
 unsigned gl_upload_texture(unsigned id, u32 w, u32 h, const u32 *rgba)
 {
+	enum { NSIZES = 1 << 16 };
+	static u32 *sizes;	/* per texture name: w << 16 | h of its storage */
+	if (!sizes)
+		sizes = calloc(NSIZES, sizeof(*sizes));
 	if (!id)
 		glGenTextures(1, &id);
 	glBindTexture(GL_TEXTURE_2D, id);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, (GLsizei)w, (GLsizei)h, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+	const u32 key = w << 16 | h;
+	if (id < NSIZES && sizes && sizes[id] == key)
+		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, (GLsizei)w, (GLsizei)h, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+	else
+	{
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, (GLsizei)w, (GLsizei)h, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+		if (id < NSIZES && sizes)
+			sizes[id] = key;
+	}
 	return id;
 }
 
@@ -1215,9 +1253,13 @@ static void wide_map(const TaCtx *c, const TaPoly *p, float *xa, float *xk, floa
 	   3D strip was squeezed like 2D while its neighbours were not, opening lines between them
 	   (the character select's light streaks) */
 	const int flat = isfinite(z0) && isfinite(z1) && z1 - z0 <= 1e-6f * (z1 > 1 ? z1 : 1);
-	if (!flat)
-		return;	/* 3D */
 	const int battle = rd32(0x8c24a584) == 1;	/* game mode 1 = fight */
+	/* the menus' 3D pieces (0x8c0ef6c0: the stage select's stage tiles and the chosen stage's
+	   plate, issue #11) are laid out in the 4:3 screen without the game's widescreen projection:
+	   like 2D, they are compressed about the centre with the panels around them */
+	const int menu_3d = !battle && p->caller == 0x8c0ef6c0u && isfinite(z0) && isfinite(z1);
+	if (!flat && !menu_3d)
+		return;	/* 3D */
 	const int textured = (p->isp >> 25) & 1;
 	(void)us;
 	if (!battle && textured && !(p->cls == 0 && z1 < 0.01f && x0 <= 1 && x1 >= 639))
@@ -1781,6 +1823,40 @@ static int side_fill(TaCtx *c, const u32 *order, u32 n)
 		bg_layer = realloc(bg_layer, cap = c->np);
 	if (!bg_mask(c, bg_layer))
 		return 0;
+	{
+		/* a 4:3 picture covers the 4:3 screen: the layer must cover nearly all of a 32 x 24
+		   grid of it. The ending's credits shrink the picture into a frame between full-width
+		   strips; enlarged into the sides, those made dark bars there (issue #11): such a
+		   layout keeps black sides, as its own surroundings */
+		static u8 grid[24][32];
+		memset(grid, 0, sizeof(grid));
+		for (u32 i = 0; i < c->np; i++)
+		{
+			if (!bg_layer[i])
+				continue;
+			const TaPoly *p = &c->p[i];
+			float x0 = 1e30f, x1 = -1e30f, y0 = 1e30f, y1 = -1e30f;
+			for (u32 k = 0; k < p->count; k++)
+			{
+				const TaVert *t = &c->v[p->first + k];
+				x0 = fminf(x0, t->x), x1 = fmaxf(x1, t->x), y0 = fminf(y0, t->y), y1 = fmaxf(y1, t->y);
+			}
+			const int gx0 = (int)fmaxf(0, floorf(x0 / 20 + 0.25f)), gx1 = (int)fminf(32, ceilf(x1 / 20 - 0.25f));
+			const int gy0 = (int)fmaxf(0, floorf(y0 / 20 + 0.25f)), gy1 = (int)fminf(24, ceilf(y1 / 20 - 0.25f));
+			for (int gy = gy0; gy < gy1; gy++)
+				for (int gx = gx0; gx < gx1; gx++)
+					grid[gy][gx] = 1;
+		}
+		u32 covered = 0;
+		for (int gy = 0; gy < 24; gy++)
+			for (int gx = 0; gx < 32; gx++)
+				covered += grid[gy][gx];
+		if (covered < 32 * 24 * 85 / 100)
+		{
+			memset(bg_layer, 0, c->np);
+			return 0;
+		}
+	}
 	if (mode == 2 && !bg_tiled_picture)
 		return 2;	/* stretch; a tiled picture gets the blur fill instead: markers are placed on it */
 	if (!blur_prog)
@@ -1853,8 +1929,50 @@ static int side_fill(TaCtx *c, const u32 *order, u32 n)
 	return 0;
 }
 
+/* the fog table (FOG_TABLE, 005F8200: 128 entries of 16 bits), FOG_COL_RAM and FOG_DENSITY (a
+   mantissa 1.7 in bits 15-8 and a signed exponent in bits 7-0) for table fog (TSP fog modes 0 and
+   3; the character select's light tunnel fades into its band with it, issue #11) */
+static void fog_table_update(void)
+{
+	static u16 last[128];
+	static int have;
+	u8 tab[256];
+	u16 cur[128];
+	for (int i = 0; i < 128; i++)
+	{
+		cur[i] = (u16)hw_reg(0x005f8200u + 4u * (u32)i);
+		tab[i] = (u8)(cur[i] & 255);		/* row 0: the end of the step */
+		tab[128 + i] = (u8)(cur[i] >> 8);	/* row 1: its start */
+	}
+	glActiveTexture(GL_TEXTURE1);
+	if (!fog_tex)
+	{
+		glGenTextures(1, &fog_tex);
+		glBindTexture(GL_TEXTURE_2D, fog_tex);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	}
+	else
+		glBindTexture(GL_TEXTURE_2D, fog_tex);
+	if (!have || memcmp(cur, last, sizeof(cur)))
+	{
+		glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, 128, 2, 0, GL_RED, GL_UNSIGNED_BYTE, tab);
+		glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+		memcpy(last, cur, sizeof(cur));
+		have = 1;
+	}
+	glActiveTexture(GL_TEXTURE0);
+	const u32 fc = hw_reg(0x005f80b0), fd = hw_reg(0x005f80b8);
+	glUniform3f(u_fog_col_ram, ((fc >> 16) & 255) / 255.0f, ((fc >> 8) & 255) / 255.0f, (fc & 255) / 255.0f);
+	glUniform1f(u_fog_density, (float)((fd >> 8) & 255) / 128.0f * ldexpf(1.0f, (int)(s8)(fd & 255)));
+}
+
 static void draw_lists(TaCtx *c)
 {
+	fog_table_update();
 	glEnable(GL_DEPTH_TEST);
 	glDisable(GL_CULL_FACE);
 	glBindVertexArray(vao);
@@ -2302,6 +2420,28 @@ static void perf_report(u64 t0, u64 t1, const TaCtx *c)
 	if (!on)
 		return;
 	const double f = 1000.0 / (double)SDL_GetPerformanceFrequency();
+	{
+		/* M1_PERF=slow (or with a number: the threshold in ms, default 12): also every frame
+		   whose game plus draw time is over it, with its texture decodes */
+		static double slow = -1;
+		static u64 last_dec;
+		if (slow < 0)
+		{
+			const char *e = getenv("M1_PERF");
+			slow = !strncmp(e, "slow", 4) ? (e[4] ? atof(e + 4) : 12.0) : 0;
+		}
+		u64 tex_decodes(void);
+		const double g = perf_prev ? (double)(t0 - perf_prev) * f : 0, d = (double)(t1 - t0) * f;
+		{
+			extern double tex_decode_ms;
+			if (slow > 0 && g + d > slow)
+				printf("perf slow: render %llu mode %u: game %.1f ms, draw %.1f ms, %u polygons, %llu texture decodes (%.1f ms)\n",
+					   (unsigned long long)rendered, rd32(0x8c24a584), g, d, c ? c->np : 0,
+					   (unsigned long long)(tex_decodes() - last_dec), tex_decode_ms);
+			tex_decode_ms = 0;
+		}
+		last_dec = tex_decodes();
+	}
 	if (perf_prev)
 		perf_game += (double)(t0 - perf_prev) * f;
 	perf_draw += (double)(t1 - t0) * f;
@@ -2452,7 +2592,18 @@ static void render_frame_draw(TaCtx *c)
 	glBindFramebuffer(GL_READ_FRAMEBUFFER, resolve_fbo);
 	for (int i = 0; i < nshots; i++)
 		if (shots[i] == rendered)
+		{
 			screenshot(rendered, rw, rh);
+			/* with each test screenshot: the frame's polygons by TSP fog mode (0 table, 1 per
+			   vertex, 2 none, 3 table mode 2) and the fog registers */
+			u32 n[4] = { 0 };
+			for (u32 k = 0; k < c->np; k++)
+				n[(c->p[k].tsp >> 22) & 3]++;
+			printf("fog: render %llu mode %u: table %u, vertex %u, none %u, table2 %u; FOG_COL_RAM %06x FOG_COL_VERT %06x "
+				   "FOG_DENSITY %04x table %04x %04x .. %04x\n", (unsigned long long)rendered, rd32(0x8c24a584), n[0], n[1], n[2], n[3],
+				   hw_reg(0x005f80b0) & 0xffffff, hw_reg(0x005f80b4) & 0xffffff, hw_reg(0x005f80b8) & 0xffff,
+				   hw_reg(0x005f8200) & 0xffff, hw_reg(0x005f8204) & 0xffff, hw_reg(0x005f83fc) & 0xffff);
+		}
 	{
 		static long long at = -2;	/* M1_SCREENSHOT_AT=n (tests): as F12 at render n */
 		if (at == -2)

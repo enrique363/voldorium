@@ -2,6 +2,28 @@
 
 All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); see the README.
 
+## 1.1.9 (2026-11-14)
+
+### Added
+- **EXIT GAME in the main menu** (enrique363/voldorium#11): quits Voldorium, also with a
+  controller (Esc was the only way before).
+
+### Fixed
+- **Fog table** (enrique363/voldorium#11): the PowerVR's table fog (distance fog that fades
+  into a colour) is drawn now. The Water Labyrinth's far cave fades into darkness instead of
+  showing pieces that pop in and out, and the character select's light tunnel fades softly into
+  its bright band instead of ending in hard edges.
+- **Stage select in widescreen** (enrique363/voldorium#11): the stage tiles and the chosen
+  stage's plate are drawn at 4:3 proportions with their panel, so they sit inside it with their
+  NEW labels, on every screen shape.
+- **Animated textures** (enrique363/voldorium#11): textures the game changes every frame (palette
+  cycling, such as the five in Inferno's defeat) get new contents in place instead of new
+  storage each time, which some graphics drivers had to wait for. Reported as a frame drop in
+  Inferno's defeat; on the test PC that scene was already well within a frame.
+- **Ending credits with BLUR backgrounds** (enrique363/voldorium#11): when the credits shrink
+  the ending picture into a frame, the sides stay black instead of showing dark bars and seams;
+  4:3 pictures that fill the screen keep their blurred or stretched sides.
+
 ## 1.1.8 (2026-11-13)
 
 ### Added

@@ -53,7 +53,9 @@ void online_menu(SH4 *c, void (*f)(SH4 *));
 #define ONLINE_INDEX 2		/* ONLINE VERSUS's place in the main menu (after VS BATTLE) */
 #define MUSEUM_INDEX 7		/* MUSEUM's place after the move (was 6) */
 #define GRAPHICS_INDEX 11	/* GRAPHICS: after OPTIONS (10); MISSION BATTLE moves to 12 */
-#define MAIN_COUNT 13
+#define EXIT_INDEX 13		/* EXIT GAME: the last entry */
+#define MAIN_COUNT 14
+#define V_EXIT 0x5f		/* its value (the game's own go up to 0x13) */
 #define ID_POOL 14			/* the Museum's entry ids 14-19 serve the lobby's lines */
 #define POOL_N 6
 #define ID_BACK 21			/* TO MAIN MENU */
@@ -71,9 +73,11 @@ static void put_str(u32 a, const char *s) { strcpy((char *)&sh4_ram[a & 0xffffff
 #define S_ITEMS (SCRATCH + 0x100)		/* lobby entries, 8 x 16 bytes */
 #define S_LINES (SCRATCH + 0x200)		/* lobby labels, 8 x 32 bytes */
 #define S_HELPS (SCRATCH + 0x400)		/* lobby help lines, 8 x 96 bytes */
-#define S_MAIN (SCRATCH + 0x800)		/* the main menu's entries, 13 x 16 bytes */
+#define S_MAIN (SCRATCH + 0x800)		/* the main menu's entries, 14 x 16 bytes */
 #define S_GLABEL (SCRATCH + 0x900)	/* "GRAPHICS" */
 #define S_GHELP (SCRATCH + 0x920)	/* its help line */
+#define S_ELABEL (SCRATCH + 0x980)	/* "EXIT GAME" */
+#define S_EHELP (SCRATCH + 0x9a0)	/* its help line */
 
 static void set_help(int id, u32 str)
 {
@@ -118,10 +122,13 @@ static void patch_main(void)
 	put_str(S_HELP, online_help());
 	put_str(S_GLABEL, "GRAPHICS");
 	put_str(S_GHELP, graphics_help());
+	put_str(S_ELABEL, "EXIT GAME");
+	put_str(S_EHELP, "Quit Voldorium.");
 	set_help(ID_INTERNET, S_HELP);
 	/* the main menu rebuilt in scratch RAM: entry 10 (INTERNET) becomes ONLINE VERSUS at index 2,
-	   a copy of it GRAPHICS at index 11, both submenu entries like MUSEUM */
-	static const int order[MAIN_COUNT] = { 0, 1, 10, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 };
+	   a copy of it GRAPHICS at index 11, both submenu entries like MUSEUM, and another EXIT GAME
+	   at the end, an action entry (the three share entry 10's help id) */
+	static const int order[MAIN_COUNT] = { 0, 1, 10, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 10 };
 	for (int i = 0; i < MAIN_COUNT; i++)
 		memcpy(&sh4_ram[(S_MAIN + (u32)i * 16) & 0xffffff], &sh4_ram[(MAIN_ITEMS + (u32)order[i] * 16) & 0xffffff], 16);
 	const u32 museum_colour = get32(MAIN_ITEMS + 6 * 16 + 8);	static const int ours[2] = { ONLINE_INDEX, GRAPHICS_INDEX };
@@ -132,6 +139,12 @@ static void patch_main(void)
 		put16(it + 2, 1);	/* menu 1 (the borrowed Museum slot) */
 		put32(it + 8, museum_colour);
 		put32(it + 12, k ? S_GLABEL : S_LABEL);
+	}
+	{
+		const u32 it = S_MAIN + (u32)EXIT_INDEX * 16;
+		put16(it, 1);	/* an action: the menu returns V_EXIT when it is chosen (online_menu) */
+		put16(it + 2, V_EXIT);
+		put32(it + 12, S_ELABEL);
 	}
 	put32(MENUS, MAIN_COUNT);
 	put32(MENUS + 12, S_MAIN);
@@ -1348,7 +1361,7 @@ void online_menu(SH4 *c, void (*f)(SH4 *))
 			const u32 e = get32(cur + 4);
 			gpage = 0;	/* GRAPHICS opens on its first page */
 			use_slot(e == ONLINE_INDEX ? SLOT_LOBBY : e == GRAPHICS_INDEX ? SLOT_GRAPHICS : SLOT_MUSEUM);
-			set_help(ID_INTERNET, e == GRAPHICS_INDEX ? S_GHELP : S_HELP);	/* the two share an id */
+			set_help(ID_INTERNET, e == GRAPHICS_INDEX ? S_GHELP : e == EXIT_INDEX ? S_EHELP : S_HELP);	/* the three share an id */
 		}
 		const int open = get32(cur) == 1 && slot_is_lobby;
 		if (open && !lobby_open)
@@ -1372,6 +1385,8 @@ void online_menu(SH4 *c, void (*f)(SH4 *))
 	}
 	f(c);
 	const u32 v = c->r[0];
+	if (v == V_EXIT && allowed)
+		m1_stop("EXIT GAME chosen in the main menu");	/* as closing the window */
 	if (slot_is_lobby && v >= V_PEER && v <= V_L_UPDATE)
 	{
 		put32(cur + 0x28, 0);	/* cancel the menu's leave-the-mode countdown */

@@ -205,7 +205,7 @@ anti-aliasing, VSync and where the fight HUD sits (as in the original 4:3 game b
 halfway out, or at the screen's edges); its second page, **MORE SETTINGS**, has loading speed
 (original or fast), how 4:3 menu pictures fill 16:9, sharp or smooth text, and the sound volume.
 **F12** saves a screenshot (PNG, in the `screenshots` folder next to the game; Xbox Game Bar
-cannot capture the game's window).
+cannot capture the game's window). **EXIT GAME**, the last main menu entry, quits (as Esc does).
 Controllers and keyboard go through SDL2.
 
 **Controls.** Keyboard: arrow keys = D-pad, Z X A S = the Dreamcast's A B X Y, Q / W = L / R,

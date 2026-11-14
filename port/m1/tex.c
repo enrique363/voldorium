@@ -174,6 +174,7 @@ typedef struct
 } TexEntry;
 static TexEntry cache[NTEX];
 static u64 decodes, rehashed;
+double tex_decode_ms;	/* wall time decoding and uploading textures (render.c M1_PERF=slow) */
 
 /* VRAM pages are rewritten with identical data all the time (character select re-sends its
    textures every frame), so a changed generation is confirmed with a hash of the bytes */
@@ -261,6 +262,7 @@ static TexEntry *lookup(u32 tcw, u32 tsp)
 	TexEntry *e = &cache[slot];
 	static u32 buf[1024 * 1024];
 	const u32 hh = (tcw >> 31) ? w : h;
+	const clock_t td0 = clock();
 	const u32 span = decode(tcw, w, h, buf);
 	decodes++;
 	{
@@ -278,6 +280,7 @@ static TexEntry *lookup(u32 tcw, u32 tsp)
 				printf("texlog:   palette %2u: %08x\n", i, palette((((tcw >> 21) & 63) << 4) | i));
 	}
 	e->id = gl_upload_texture(e->used ? e->id : 0, w, hh, buf);
+	tex_decode_ms += (double)(clock() - td0) * 1000.0 / CLOCKS_PER_SEC;	/* M1_PERF=slow */
 	if (!e->used || e->tcw != tcw || e->size != size)
 		e->hi_volatile = 0, e->hi_count = 0;	/* another texture in this slot */
 	e->used = 1;
