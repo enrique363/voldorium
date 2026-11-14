@@ -2,6 +2,11 @@
 
 All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); see the README.
 
+## 1.1.10 (2026-11-14)
+
+### Fixed
+- **EXIT GAME** quits straight away, like Esc, instead of first showing a small Windows message box.
+
 ## 1.1.9 (2026-11-14)
 
 ### Added

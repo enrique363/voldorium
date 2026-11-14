@@ -1386,7 +1386,7 @@ void online_menu(SH4 *c, void (*f)(SH4 *))
 	f(c);
 	const u32 v = c->r[0];
 	if (v == V_EXIT && allowed)
-		m1_stop("EXIT GAME chosen in the main menu");	/* as closing the window */
+		m1_stop("quit (EXIT GAME)");	/* as closing the window */
 	if (slot_is_lobby && v >= V_PEER && v <= V_L_UPDATE)
 	{
 		put32(cur + 0x28, 0);	/* cancel the menu's leave-the-mode countdown */

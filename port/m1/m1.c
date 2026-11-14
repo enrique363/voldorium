@@ -115,7 +115,7 @@ void m1_stop(const char *why)
 	hw_report();
 #ifdef _WIN32
 	/* player form: tell the player why the game stopped, unless they quit themselves */
-	if (!m1_verbose && strcmp(why, "window closed") && strcmp(why, "quit (Esc)"))
+	if (!m1_verbose && strcmp(why, "window closed") && strncmp(why, "quit (", 6))	/* quit (Esc), quit (EXIT GAME) */
 		MessageBoxA(0, why, "Voldorium", MB_ICONINFORMATION);
 #endif
 	exit(0);
