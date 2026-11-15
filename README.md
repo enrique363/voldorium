@@ -6,15 +6,39 @@ A native Windows and Linux port of the Dreamcast fighting game **SoulCalibur** (
 made by static recompilation: the game's SH-4 machine code is translated into C and compiled
 together with a small native runtime that stands in for the Dreamcast hardware. It adds:
 
-- widescreen: 16:9, or your screen's shape down to 4:3 (16:10 monitors, the Steam Deck); the 3D scene
-  widened, HUD, menus and text kept at their true proportions
-- any resolution, full screen at the desktop's native resolution, multisample anti-aliasing,
-  AMD FSR 1 upscaling when drawing below native
-- **Online Versus** in the game's own main menu: a worldwide lobby with matchmaking, ping,
-  accept/decline, NAT hole punching with a relay fallback, and GGPO rollback netcode
-- a built-in virtual memory card, an in-game GRAPHICS menu, optional 16:9 replacement artwork,
-  and new high resolution art for the hit level labels in Practice (`port/m1/textures`, drawn by
-  `tools/hitlabels.py`)
+**Picture**
+- **Widescreen**: 16:9, or your screen's own shape down to 4:3 (16:10 monitors, the Steam Deck).
+  The 3D scene is widened, while the HUD, menus and text keep their true proportions.
+- **Fight HUD placement**: kept in the 4:3 middle (the default) or spread to the screen's edges.
+- **4:3 menu and loading pictures** in widescreen: stretched, with blurred sides, with black
+  sides, or replaced by optional 16:9 artwork.
+- **Any resolution**: full screen at the desktop's native resolution, or any fixed size.
+- **AMD FSR 1 upscaling**: ULTRA QUALITY, QUALITY, BALANCED and PERFORMANCE presets draw below
+  native and upscale with sharp edges, for slower PCs and handhelds.
+- **Multisample anti-aliasing and VSync** (no tearing).
+- **Smooth text**: menu and HUD text drawn from upscaled copies of the game's font.
+- New high resolution art for the hit level labels in Practice (`port/m1/textures`, drawn by
+  `tools/hitlabels.py`).
+- **F12 takes a screenshot** (PNG at the full drawing size).
+
+**Online**
+- **Online Versus** in the game's own main menu: a worldwide lobby with matchmaking, ping and
+  accept/decline.
+- **GGPO rollback netcode**, with NAT hole punching and a relay server as fallback.
+- **Windows and Linux players meet in the same lobby**, the full roster unlocked in every match.
+- **Update notice**: the main menu tells you when a newer version is out.
+
+**Play**
+- **Fast loading** (or the original loading times, if you prefer).
+- A built-in virtual memory card: progress and unlocks are saved.
+- **Keyboard and controllers** (Xbox layout, the Steam Deck's controls): a second controller is
+  player 2 for VS BATTLE; keys and the shoulder buttons and triggers can be remapped in
+  `voldorium.ini`.
+- **GRAPHICS menu in the game** (two pages) for every picture setting; everything else in a
+  documented `voldorium.ini`.
+- **Native Windows and Linux versions**: no emulator. The game module is built once on your own
+  PC from your own disc.
+- Safe quitting: **EXIT GAME** in the main menu, or **Esc** pressed twice.
 
 What changed in each version: [CHANGELOG.md](CHANGELOG.md).
 
