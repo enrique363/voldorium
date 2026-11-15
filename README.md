@@ -273,8 +273,13 @@ More detail is in `port/README.md` and in the README.txt of the player folder.
 
 ## Steam Deck
 
-Either version runs on the Deck; neither is tested on a real Deck yet, so reports are welcome.
+**We recommend SteamOS with the Linux version on the Deck:** it performs best there.
 Online Versus matches Deck, Linux and Windows players of the same version.
+
+**Windows installed on the Deck is not supported.** Voldorium draws with OpenGL, and the
+Deck's Windows graphics driver adds a large fixed cost to every OpenGL frame, so fights stutter
+whatever the settings. If your Deck runs Windows, use SteamOS (for example as dual boot) to play
+Voldorium.
 
 - **Linux (native):** copy the unpacked Linux download and your disc dump (the `.gdi` and its
   track files) to the Deck. In Desktop Mode, start `voldorium` once: it asks for the dump and
