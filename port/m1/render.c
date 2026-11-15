@@ -56,6 +56,7 @@
 	X(PFNGLSHADERSOURCEPROC, glShaderSource) \
 	X(PFNGLUNIFORM1FPROC, glUniform1f) \
 	X(PFNGLUNIFORM1IPROC, glUniform1i) \
+	X(PFNGLUNIFORM2IPROC, glUniform2i) \
 	X(PFNGLUNIFORM2FPROC, glUniform2f) \
 	X(PFNGLUNIFORM3FPROC, glUniform3f) \
 	X(PFNGLBUFFERSUBDATAPROC, glBufferSubData) \
@@ -90,6 +91,7 @@ GL_FUNCS(X)
 #define glShaderSource p_glShaderSource
 #define glUniform1f p_glUniform1f
 #define glUniform1i p_glUniform1i
+#define glUniform2i p_glUniform2i
 #define glUniform2f p_glUniform2f
 #define glUniform3f p_glUniform3f
 #define glUniform4f p_glUniform4f
@@ -258,6 +260,8 @@ static void parse_shots(void)
 static GLuint frame_fbo, frame_color, frame_depth, resolve_fbo, resolve_tex;
 static int frame_w, frame_h, frame_samples = -1;
 static int res_w, res_h, msaa, max_samples = 8;
+static int res_pct;	/* resolution = 77% ... 50%: that share of native, upscaled with FSR (0: native or WxH) */
+static const int fsr_pcts[] = { 77, 67, 59, 50 };	/* FSR 1's ultra quality, quality, balanced, performance */
 
 void config_set(const char *section, const char *key, const char *value);
 void config_save(void);
@@ -268,6 +272,9 @@ static void video_settings_load(void)
 	const char *r = getenv("M1_RESOLUTION");
 	if (r && sscanf(r, "%dx%d", &res_w, &res_h) != 2)
 		res_w = res_h = 0;
+	res_pct = r && strchr(r, '%') ? atoi(r) : 0;
+	if (res_pct < 25 || res_pct >= 100)
+		res_pct = 0;
 	msaa = getenv("M1_MSAA") ? atoi(getenv("M1_MSAA")) : 0;
 }
 
@@ -297,6 +304,231 @@ static void frame_target(int w, int h)
 	glBindFramebuffer(GL_FRAMEBUFFER, resolve_fbo);
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, resolve_tex, 0);
 	printf("video: drawing at %dx%d, %s\n", w, h, samples ? (samples == 2 ? "2x MSAA" : samples == 4 ? "4x MSAA" : "8x MSAA") : "no MSAA");
+}
+
+/* ---- FSR 1 upscaling ---------------------------------------------------------------------
+ * A picture drawn smaller than its area in the window (resolution 77% to 50% of native, or a
+ * fixed size below it) is upscaled with AMD FidelityFX Super Resolution 1: EASU (edge-adaptive
+ * upscale, 12 texels per pixel) into fsr_tex at the window's size, then RCAS (contrast-adaptive
+ * sharpening) into the window. Ported to GLSL 330 from AMD's ffx_fsr1.h (FSR 1.0, MIT licence:
+ * Copyright (c) 2021 Advanced Micro Devices, Inc.), the 32-bit float paths, without RCAS's
+ * optional noise removal. [video] upscale = linear (M1_UPSCALE) keeps plain bilinear scaling.
+ *
+ * FSR 1 licence: Copyright (c) 2021 Advanced Micro Devices, Inc. All rights reserved.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of this software
+ * and associated documentation files (the "Software"), to deal in the Software without
+ * restriction, including without limitation the rights to use, copy, modify, merge, publish,
+ * distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the
+ * Software is furnished to do so, subject to the following conditions: The above copyright
+ * notice and this permission notice shall be included in all copies or substantial portions of
+ * the Software. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+ * PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+ * LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+ * OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+ * DEALINGS IN THE SOFTWARE. */
+static const char *fsr_vs =
+	"#version 330 core\n"
+	"layout(location = 0) in vec2 p;\n"
+	"void main() { gl_Position = vec4(p, 0.0, 1.0); }\n";
+static const char *easu_fs =
+	"#version 330 core\n"
+	"out vec4 o;\n"
+	"uniform sampler2D src; uniform vec2 origin, scale; uniform ivec2 isize;\n"
+	"vec3 T(ivec2 p) { return texelFetch(src, clamp(p, ivec2(0), isize - 1), 0).rgb; }\n"
+	"float L(vec3 c) { return c.b * 0.5 + (c.r * 0.5 + c.g); }\n"
+	"void Set(inout vec2 dir, inout float len, float w, float a, float b, float c, float d, float e) {\n"
+	"  float dc = d - c, cb = c - b;\n"
+	"  float lx = 1.0 / max(max(abs(dc), abs(cb)), 1e-8);\n"
+	"  float dx = d - b; dir.x += dx * w; lx = clamp(abs(dx) * lx, 0.0, 1.0); len += lx * lx * w;\n"
+	"  float ec = e - c, ca = c - a;\n"
+	"  float ly = 1.0 / max(max(abs(ec), abs(ca)), 1e-8);\n"
+	"  float dy = e - a; dir.y += dy * w; ly = clamp(abs(dy) * ly, 0.0, 1.0); len += ly * ly * w;\n"
+	"}\n"
+	"void Tap(inout vec3 ac, inout float aw, vec2 off, vec2 dir, vec2 len2, float lob, float clp, vec3 c) {\n"
+	"  vec2 v = vec2(off.x * dir.x + off.y * dir.y, off.x * -dir.y + off.y * dir.x) * len2;\n"
+	"  float d2 = min(dot(v, v), clp);\n"
+	"  float wB = 0.4 * d2 - 1.0, wA = lob * d2 - 1.0;\n"
+	"  wB *= wB; wA *= wA; wB = 1.5625 * wB - 0.5625;\n"
+	"  float w = wB * wA; ac += c * w; aw += w;\n"
+	"}\n"
+	"void main() {\n"
+	"  vec2 pp = (gl_FragCoord.xy - origin) * scale - 0.5;\n"
+	"  vec2 fp = floor(pp); pp -= fp; ivec2 q = ivec2(fp);\n"
+	"  vec3 b = T(q + ivec2(0, -1)), c = T(q + ivec2(1, -1));\n"
+	"  vec3 e = T(q + ivec2(-1, 0)), f = T(q), g = T(q + ivec2(1, 0)), h = T(q + ivec2(2, 0));\n"
+	"  vec3 i = T(q + ivec2(-1, 1)), j = T(q + ivec2(0, 1)), k = T(q + ivec2(1, 1)), l = T(q + ivec2(2, 1));\n"
+	"  vec3 n = T(q + ivec2(0, 2)), m = T(q + ivec2(1, 2));\n"
+	"  float bL = L(b), cL = L(c), eL = L(e), fL = L(f), gL = L(g), hL = L(h);\n"
+	"  float iL = L(i), jL = L(j), kL = L(k), lL = L(l), nL = L(n), mL = L(m);\n"
+	"  vec2 dir = vec2(0.0); float len = 0.0;\n"
+	"  Set(dir, len, (1.0 - pp.x) * (1.0 - pp.y), bL, eL, fL, gL, jL);\n"
+	"  Set(dir, len, pp.x * (1.0 - pp.y), cL, fL, gL, hL, kL);\n"
+	"  Set(dir, len, (1.0 - pp.x) * pp.y, fL, iL, jL, kL, nL);\n"
+	"  Set(dir, len, pp.x * pp.y, gL, jL, kL, lL, mL);\n"
+	"  float dirR = dot(dir, dir); bool zro = dirR < 1.0 / 32768.0;\n"
+	"  dirR = zro ? 1.0 : inversesqrt(dirR); dir.x = zro ? 1.0 : dir.x; dir *= dirR;\n"
+	"  len = len * 0.5; len *= len;\n"
+	"  float stretch = dot(dir, dir) / max(abs(dir.x), abs(dir.y));\n"
+	"  vec2 len2 = vec2(1.0 + (stretch - 1.0) * len, 1.0 - 0.5 * len);\n"
+	"  float lob = 0.5 + (0.25 - 0.04 - 0.5) * len, clp = 1.0 / lob;\n"
+	"  vec3 mn = min(min(f, g), min(j, k)), mx = max(max(f, g), max(j, k));\n"
+	"  vec3 ac = vec3(0.0); float aw = 0.0;\n"
+	"  Tap(ac, aw, vec2(0.0, -1.0) - pp, dir, len2, lob, clp, b);\n"
+	"  Tap(ac, aw, vec2(1.0, -1.0) - pp, dir, len2, lob, clp, c);\n"
+	"  Tap(ac, aw, vec2(-1.0, 1.0) - pp, dir, len2, lob, clp, i);\n"
+	"  Tap(ac, aw, vec2(0.0, 1.0) - pp, dir, len2, lob, clp, j);\n"
+	"  Tap(ac, aw, vec2(0.0, 0.0) - pp, dir, len2, lob, clp, f);\n"
+	"  Tap(ac, aw, vec2(-1.0, 0.0) - pp, dir, len2, lob, clp, e);\n"
+	"  Tap(ac, aw, vec2(1.0, 1.0) - pp, dir, len2, lob, clp, k);\n"
+	"  Tap(ac, aw, vec2(2.0, 1.0) - pp, dir, len2, lob, clp, l);\n"
+	"  Tap(ac, aw, vec2(2.0, 0.0) - pp, dir, len2, lob, clp, h);\n"
+	"  Tap(ac, aw, vec2(1.0, 0.0) - pp, dir, len2, lob, clp, g);\n"
+	"  Tap(ac, aw, vec2(1.0, 2.0) - pp, dir, len2, lob, clp, m);\n"
+	"  Tap(ac, aw, vec2(0.0, 2.0) - pp, dir, len2, lob, clp, n);\n"
+	"  o = vec4(min(mx, max(mn, ac / aw)), 1.0);\n"
+	"}\n";
+static const char *rcas_fs =
+	"#version 330 core\n"
+	"out vec4 o;\n"
+	"uniform sampler2D src; uniform vec2 origin; uniform ivec2 isize; uniform float sharp;\n"
+	"vec3 T(ivec2 p) { return texelFetch(src, clamp(p, ivec2(0), isize - 1), 0).rgb; }\n"
+	"void main() {\n"
+	"  ivec2 q = ivec2(gl_FragCoord.xy - origin);\n"
+	"  vec3 b = T(q + ivec2(0, -1)), d = T(q + ivec2(-1, 0)), e = T(q), f = T(q + ivec2(1, 0)), h = T(q + ivec2(0, 1));\n"
+	"  vec3 mn4 = min(min(b, d), min(f, h)), mx4 = max(max(b, d), max(f, h));\n"
+	"  vec3 hitMin = min(mn4, e) / max(4.0 * mx4, vec3(1e-5));\n"
+	"  vec3 hitMax = (1.0 - max(mx4, e)) / min(4.0 * mn4 - 4.0, vec3(-1e-5));\n"
+	"  vec3 lobeC = max(-hitMin, hitMax);\n"
+	"  float lobe = max(-0.1875, min(max(lobeC.r, max(lobeC.g, lobeC.b)), 0.0)) * sharp;\n"
+	"  o = vec4(clamp((lobe * (b + d + f + h) + e) / (4.0 * lobe + 1.0), 0.0, 1.0), 1.0);\n"
+	"}\n";
+
+static GLuint fsr_easu, fsr_rcas, fsr_vao, fsr_vbo, fsr_fbo, fsr_tex;
+static GLint u_e_src, u_e_origin, u_e_scale, u_e_isize, u_r_src, u_r_origin, u_r_isize, u_r_sharp;
+static int fsr_w, fsr_h, fsr_state;	/* fsr_state: 0 not tried, 1 ready, -1 off (linear, or a shader failed) */
+
+static GLuint fsr_shader(GLenum type, const char *src)
+{
+	GLuint s = glCreateShader(type);
+	glShaderSource(s, 1, &src, 0);
+	glCompileShader(s);
+	GLint ok;
+	glGetShaderiv(s, GL_COMPILE_STATUS, &ok);
+	if (!ok)
+	{
+		char log[1024];
+		glGetShaderInfoLog(s, sizeof(log), 0, log);
+		printf("video: FSR shader rejected, upscaling bilinear instead:\n%s\n", log);
+		return 0;
+	}
+	return s;
+}
+
+static int fsr_ready(void)
+{
+	if (fsr_state)
+		return fsr_state > 0;
+	fsr_state = -1;
+	const char *u = getenv("M1_UPSCALE");
+	if (u && !strcmp(u, "linear"))
+		return 0;
+	const GLuint vs = fsr_shader(GL_VERTEX_SHADER, fsr_vs), es = fsr_shader(GL_FRAGMENT_SHADER, easu_fs),
+				 rs = fsr_shader(GL_FRAGMENT_SHADER, rcas_fs);
+	if (!vs || !es || !rs)
+		return 0;
+	fsr_easu = glCreateProgram();
+	glAttachShader(fsr_easu, vs);
+	glAttachShader(fsr_easu, es);
+	glLinkProgram(fsr_easu);
+	fsr_rcas = glCreateProgram();
+	glAttachShader(fsr_rcas, vs);
+	glAttachShader(fsr_rcas, rs);
+	glLinkProgram(fsr_rcas);
+	u_e_src = glGetUniformLocation(fsr_easu, "src");
+	u_e_origin = glGetUniformLocation(fsr_easu, "origin");
+	u_e_scale = glGetUniformLocation(fsr_easu, "scale");
+	u_e_isize = glGetUniformLocation(fsr_easu, "isize");
+	u_r_src = glGetUniformLocation(fsr_rcas, "src");
+	u_r_origin = glGetUniformLocation(fsr_rcas, "origin");
+	u_r_isize = glGetUniformLocation(fsr_rcas, "isize");
+	u_r_sharp = glGetUniformLocation(fsr_rcas, "sharp");
+	static const float tri[6] = { -1, -1, 3, -1, -1, 3 };	/* one triangle covers the viewport */
+	glGenVertexArrays(1, &fsr_vao);
+	glBindVertexArray(fsr_vao);
+	glGenBuffers(1, &fsr_vbo);
+	glBindBuffer(GL_ARRAY_BUFFER, fsr_vbo);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(tri), tri, GL_STATIC_DRAW);
+	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 8, (void *)0);
+	glEnableVertexAttribArray(0);
+	glGenFramebuffers(1, &fsr_fbo);
+	glGenTextures(1, &fsr_tex);
+	fsr_state = 1;
+	printf("video: FSR 1 upscaling ready\n");
+	return 1;
+}
+
+/* resolve_tex (rw x rh) into the window's area x0, y0, vw x vh; 0: not done (bilinear instead) */
+static int fsr_present(int rw, int rh, int x0, int y0, int vw, int vh)
+{
+	if (!fsr_ready())
+		return 0;
+	GLint active, tex0;
+	glGetIntegerv(GL_ACTIVE_TEXTURE, &active);
+	glActiveTexture(GL_TEXTURE0);
+	glGetIntegerv(GL_TEXTURE_BINDING_2D, &tex0);
+	const GLboolean depth = glIsEnabled(GL_DEPTH_TEST), blend = glIsEnabled(GL_BLEND), stencil = glIsEnabled(GL_STENCIL_TEST),
+					cull = glIsEnabled(GL_CULL_FACE), scissor = glIsEnabled(GL_SCISSOR_TEST);
+	glDisable(GL_DEPTH_TEST);
+	glDisable(GL_BLEND);
+	glDisable(GL_STENCIL_TEST);
+	glDisable(GL_CULL_FACE);
+	glDisable(GL_SCISSOR_TEST);
+	if (vw != fsr_w || vh != fsr_h)
+	{
+		fsr_w = vw, fsr_h = vh;
+		glBindTexture(GL_TEXTURE_2D, fsr_tex);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, vw, vh, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		glBindFramebuffer(GL_FRAMEBUFFER, fsr_fbo);
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, fsr_tex, 0);
+	}
+	glBindVertexArray(fsr_vao);
+	/* EASU: the drawn picture, enlarged into fsr_tex */
+	glBindFramebuffer(GL_FRAMEBUFFER, fsr_fbo);
+	glViewport(0, 0, vw, vh);
+	glUseProgram(fsr_easu);
+	glBindTexture(GL_TEXTURE_2D, resolve_tex);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);	/* no mipmaps: complete for texelFetch */
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glUniform1i(u_e_src, 0);
+	glUniform2f(u_e_origin, 0, 0);
+	glUniform2f(u_e_scale, (float)rw / (float)vw, (float)rh / (float)vh);
+	glUniform2i(u_e_isize, rw, rh);
+	glDrawArrays(GL_TRIANGLES, 0, 3);
+	/* RCAS: sharpened into the window (sharpness 0.2 stops, AMD's default: 2^-0.2) */
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	glViewport(x0, y0, vw, vh);
+	glUseProgram(fsr_rcas);
+	glBindTexture(GL_TEXTURE_2D, fsr_tex);
+	glUniform1i(u_r_src, 0);
+	glUniform2f(u_r_origin, (float)x0, (float)y0);
+	glUniform2i(u_r_isize, vw, vh);
+	glUniform1f(u_r_sharp, 0.87055f);
+	glDrawArrays(GL_TRIANGLES, 0, 3);
+	/* the frame's own state again */
+	glUseProgram(prog);
+	glBindVertexArray(vao);
+	glBindBuffer(GL_ARRAY_BUFFER, vbo);
+	glBindTexture(GL_TEXTURE_2D, (GLuint)tex0);
+	glActiveTexture((GLenum)active);
+	if (depth) glEnable(GL_DEPTH_TEST);
+	if (blend) glEnable(GL_BLEND);
+	if (stencil) glEnable(GL_STENCIL_TEST);
+	if (cull) glEnable(GL_CULL_FACE);
+	if (scissor) glEnable(GL_SCISSOR_TEST);
+	return 1;
 }
 
 /* the monitor's size (the desktop mode of the window's display) */
@@ -404,15 +636,39 @@ void video_resolution_label(char *buf, size_t n)
 		/* the screen's (or window's) size in the picture's shape */
 		const float a = picture_aspect(w, h);
 		const int pw = (int)(h * a + 0.5f) > w ? w : (int)(h * a + 0.5f), ph = (int)(pw / a + 0.5f) > h ? h : (int)(pw / a + 0.5f);
-		snprintf(buf, n, "NATIVE %d X %d", pw, ph);
+		if (res_pct)
+			snprintf(buf, n, "FSR %d%% %d X %d", res_pct, pw * res_pct / 100, ph * res_pct / 100);
+		else
+			snprintf(buf, n, "NATIVE %d X %d", pw, ph);
 	}
 }
 
+/* native, FSR 77%, 67%, 59%, 50% (of native), then the sizes up to the monitor's, then native */
 void video_next_resolution(void)
 {
 	int dw, dh;
 	display_size(&dw, &dh);
-	const int n = (int)(sizeof(sizes) / sizeof(sizes[0]));
+	const int n = (int)(sizeof(sizes) / sizeof(sizes[0])), np = (int)(sizeof(fsr_pcts) / sizeof(fsr_pcts[0]));
+	char v[32] = "native";
+	if (!res_w)
+	{
+		int p = -1;
+		for (int i = 0; i < np; i++)
+			if (fsr_pcts[i] == res_pct)
+				p = i;
+		if (p + 1 < np)
+		{
+			res_pct = fsr_pcts[p + 1];
+			snprintf(v, sizeof(v), "%d%%", res_pct);
+			if (win && !video_is_fullscreen())
+				window_fit();
+			config_set("video", "resolution", v);
+			config_save();
+			setting_env("M1_RESOLUTION", v);
+			return;
+		}
+		res_pct = 0;	/* after 50%: the first fixed size */
+	}
 	int cur = -1;
 	for (int i = 0; i < n; i++)
 		if (sizes[i][0] == res_w && sizes[i][1] == res_h)
@@ -424,7 +680,6 @@ void video_next_resolution(void)
 			next = i;
 			break;
 		}
-	char v[32] = "native";
 	if (next < 0)
 		res_w = res_h = 0;	/* after the largest: back to native */
 	else
@@ -2578,7 +2833,12 @@ static void render_frame_draw(TaCtx *c)
 	glUniform1f(u_xzoom, view_zoom);
 	int vw = ww, vh = (int)(ww / view_aspect + 0.5f);
 	if (vh > wh) { vh = wh; vw = (int)(wh * view_aspect + 0.5f); }
-	const int rw = res_w ? res_w : vw, rh = res_w ? res_h : vh;
+	int rw = res_w ? res_w : vw, rh = res_w ? res_h : vh;
+	if (!res_w && res_pct)	/* a share of native, upscaled with FSR into the window */
+	{
+		rw = vw * res_pct / 100, rh = vh * res_pct / 100;
+		rw = rw < 64 ? 64 : rw, rh = rh < 48 ? 48 : rh;
+	}
 	frame_target(rw, rh);
 	glBindFramebuffer(GL_FRAMEBUFFER, frame_fbo);
 	glViewport(0, 0, rw, rh);
@@ -2683,7 +2943,38 @@ static void render_frame_draw(TaCtx *c)
 	glClearColor(0, 0, 0, 1);
 	glClear(GL_COLOR_BUFFER_BIT);
 	const int x0 = (ww - vw) / 2, y0 = (wh - vh) / 2;
-	glBlitFramebuffer(0, 0, rw, rh, x0, y0, x0 + vw, y0 + vh, GL_COLOR_BUFFER_BIT, rw == vw && rh == vh ? GL_NEAREST : GL_LINEAR);
+	/* smaller than its area: FSR 1 (unless [video] upscale = linear); otherwise copied or scaled */
+	if (!(rw < vw && rh < vh && fsr_present(rw, rh, x0, y0, vw, vh)))
+	{
+		glBindFramebuffer(GL_READ_FRAMEBUFFER, resolve_fbo);
+		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+		glBlitFramebuffer(0, 0, rw, rh, x0, y0, x0 + vw, y0 + vh, GL_COLOR_BUFFER_BIT, rw == vw && rh == vh ? GL_NEAREST : GL_LINEAR);
+	}
+	{
+		/* M1_WINSHOT=n (tests): the window's picture at render n, after upscaling, as win_n.ppm */
+		static long long at = -2;
+		if (at == -2)
+			at = getenv("M1_WINSHOT") ? atoll(getenv("M1_WINSHOT")) : -1;
+		if ((long long)rendered == at)
+		{
+			u8 *px = malloc((size_t)ww * wh * 3);
+			glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+			glPixelStorei(GL_PACK_ALIGNMENT, 1);
+			glReadPixels(0, 0, ww, wh, GL_RGB, GL_UNSIGNED_BYTE, px);
+			char name[64];
+			snprintf(name, sizeof(name), "win_%lld.ppm", at);
+			FILE *f = fopen(name, "wb");
+			if (f)
+			{
+				fprintf(f, "P6\n%d %d\n255\n", ww, wh);
+				for (int y = wh - 1; y >= 0; y--)
+					fwrite(px + (size_t)y * ww * 3, 1, (size_t)ww * 3, f);
+				fclose(f);
+			}
+			free(px);
+			printf("saved %s (%dx%d)\n", name, ww, wh);
+		}
+	}
 	glBindFramebuffer(GL_FRAMEBUFFER, frame_fbo);
 	SDL_GL_SwapWindow(win);
 	{

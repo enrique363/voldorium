@@ -4,8 +4,9 @@
  *   [game]  disc = path of the .gdi        font = BIOS font file (optional)
  *           loading = original (disc reads take the Dreamcast drive's time) / fast (instant)
  *           vmu = memory card file (default vmu_a1.bin next to the executable; none in netplay)
- *   [video] fullscreen = 0/1 (player form default 1)  resolution = native or WxH (16:9; the
- *           picture is drawn at that size)  window = 1280x720 (window size when native)
+ *   [video] fullscreen = 0/1 (player form default 1)  resolution = native, 77%/67%/59%/50% of
+ *           native (FSR 1 upscaling) or WxH (the picture is drawn at that size)  upscale = fsr/linear
+ *           window = 1280x720 (window size when native)
  *           msaa = 0/2/4/8 (anti-aliasing), vsync = 1/0, text = smooth/sharp
  *           backgrounds = stretch / blur / replace (4:3 menu and loading pictures in 16:9)
  *   [audio] enabled = 0/1  volume = 0-200 (percent)
@@ -161,7 +162,8 @@ static const char *const ini_notes[][3] = {
 	{ "game", "vmu", "the memory card file (default: vmu_a1.bin next to the game)" },
 	{ "game", "update_check", "1: ask the lobby server for a newer version at the main menu (sends only the version), 0: never" },
 	{ "video", "fullscreen", "1 full screen, 0 a window (Alt+Enter or F11 switch while playing)" },
-	{ "video", "resolution", "native (your monitor's) or a 16:9 size such as 1920x1080: the size the game is drawn at" },
+	{ "video", "resolution", "native (your monitor's), 77%, 67%, 59% or 50% of native (drawn smaller, sharpened back up with AMD FSR 1), or a size such as 1920x1080: the size the game is drawn at" },
+	{ "video", "upscale", "fsr (AMD FSR 1, the default) or linear (plain): how a picture drawn smaller than the screen is enlarged" },
 	{ "video", "window", "the window's size when not full screen" },
 	{ "video", "msaa", "anti-aliasing: 0 (off), 2, 4 or 8" },
 	{ "video", "backgrounds", "4:3 menu and loading pictures: stretch, blur (blurred sides), black (black sides) or replace (art16x9 folder)" },
@@ -253,6 +255,7 @@ static void apply_settings(void)
 		env_default("M1_FULLSCREEN", "1");
 	env_default("M1_WINDOW", config_get("video", "window"));
 	env_default("M1_RESOLUTION", config_get("video", "resolution"));
+	env_default("M1_UPSCALE", config_get("video", "upscale"));	/* fsr or linear (render.c) */
 	env_default("M1_BGMODE", config_get("video", "backgrounds"));
 	env_default("M1_HUD", config_get("video", "hud"));	/* edges, middle or 4:3 (render.c) */
 	env_default("M1_ARTDUMP", config_get("debug", "artdump"));

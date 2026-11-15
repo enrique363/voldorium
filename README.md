@@ -8,7 +8,8 @@ together with a small native runtime that stands in for the Dreamcast hardware. 
 
 - widescreen: 16:9, or your screen's shape down to 4:3 (16:10 monitors, the Steam Deck); the 3D scene
   widened, HUD, menus and text kept at their true proportions
-- any resolution, full screen at the desktop's native resolution, multisample anti-aliasing
+- any resolution, full screen at the desktop's native resolution, multisample anti-aliasing,
+  AMD FSR 1 upscaling when drawing below native
 - **Online Versus** in the game's own main menu: a worldwide lobby with matchmaking, ping,
   accept/decline, NAT hole punching with a relay fallback, and GGPO rollback netcode
 - a built-in virtual memory card, an in-game GRAPHICS menu, optional 16:9 replacement artwork,
@@ -252,7 +253,8 @@ closed.
 | | `vmu` | file | | The memory card (default `vmu_a1.bin` next to the game). |
 | | `update_check` | `1`, `0` | | Asks the lobby server for a newer version at the main menu (sends only the version). |
 | `[video]` | `fullscreen` | `1`, `0` | ✓ | Full screen or a window (also Alt+Enter / F11). |
-| | `resolution` | `native`, `1920x1080`, `1920x1200`... | ✓ | The size the game is drawn at, and its shape: your monitor's (from 4:3 to 16:9; wider screens get side bars), or a 16:9, 16:10 or 4:3 size. |
+| | `resolution` | `native`, `77%`, `67%`, `59%`, `50%`, `1920x1080`, `1920x1200`... | ✓ | The size the game is drawn at, and its shape: your monitor's (from 4:3 to 16:9; wider screens get side bars), a share of it that AMD FSR 1 sharpens back up to full size (for slower PCs), or a 16:9, 16:10 or 4:3 size. |
+| | `upscale` | `fsr`, `linear` | | How a picture drawn smaller than the screen is enlarged: AMD FSR 1 (default) or plain bilinear. |
 | | `window` | `1280x720`... | | The window's size when not full screen. |
 | | `msaa` | `0`, `2`, `4`, `8` | ✓ | Anti-aliasing. |
 | | `vsync` | `1`, `0` | ✓ | On: no tearing. Off: lowest input delay. |
@@ -315,6 +317,8 @@ The project's own code is provided for personal, non-commercial use with a legal
 of the game. Third-party parts keep their own licenses:
 
 - GGPO: MIT (`third_party/ggpo/LICENSE`)
+- AMD FidelityFX Super Resolution 1 (FSR 1): MIT, ported to GLSL in `port/m1/render.c` (the
+  licence text is with it)
 - SDL2: zlib (linked at build time, shipped as `SDL2.dll`; on Linux the system's own)
 - Zig (MIT): the Linux builder downloads it at first start; it is not shipped
 - Flycast: GPL-2.0. Its sine table header (the SH-4 FSCA results, measured on the hardware)

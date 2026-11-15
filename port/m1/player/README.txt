@@ -160,10 +160,12 @@ marked * are also in the game (GRAPHICS). Edit it while the game is closed.
          vmu          the memory card file (default vmu_a1.bin next to the game)
          update_check 1: say when a newer version is out (see Updates), 0: never ask
 [video]  fullscreen * 1 full screen, 0 a window
-         resolution * native (your screen's size and shape), or a 16:9, 16:10 or 4:3 size such as 1920x1080
+         resolution * native (your screen's size and shape), 77%, 67%, 59% or 50% of it (upscaled
+                      with AMD FSR 1), or a 16:9, 16:10 or 4:3 size such as 1920x1080
+         upscale      fsr (AMD FSR 1, default) or linear: how a smaller picture is enlarged
          window       the window's size when not full screen (default 1280x720)
          msaa *       anti-aliasing: 0, 2, 4 or 8
-         backgrounds * stretch, blur or replace (see 16:9 pictures)
+         backgrounds * stretch, blur, black or replace (see 16:9 pictures)
          hud *        4:3, middle or edges
          text *       smooth or sharp
          vsync *      1 on, 0 off (see VSync)
