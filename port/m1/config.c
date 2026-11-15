@@ -164,7 +164,7 @@ static const char *const ini_notes[][3] = {
 	{ "video", "resolution", "native (your monitor's) or a 16:9 size such as 1920x1080: the size the game is drawn at" },
 	{ "video", "window", "the window's size when not full screen" },
 	{ "video", "msaa", "anti-aliasing: 0 (off), 2, 4 or 8" },
-	{ "video", "backgrounds", "4:3 menu and loading pictures: stretch, blur (blurred sides) or replace (art16x9 folder)" },
+	{ "video", "backgrounds", "4:3 menu and loading pictures: stretch, blur (blurred sides), black (black sides) or replace (art16x9 folder)" },
 	{ "video", "hud", "fight HUD: 4:3 (as in the original), middle (halfway out) or edges (screen sides)" },
 	{ "video", "text", "menu and HUD text: smooth (upscaled) or sharp (the original pixels)" },
 	{ "video", "vsync", "1 on (no tearing), 0 off (lowest input delay)" },

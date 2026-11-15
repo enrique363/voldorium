@@ -2,6 +2,29 @@
 
 All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); see the README.
 
+## Unreleased
+
+### Added
+- **BACKGROUNDS BLACK** (enrique363/voldorium#15): a fourth choice for 4:3 menu and loading
+  pictures in widescreen, next to stretch, blur and replace: plain black sides, as on a 16:9 TV.
+  In GRAPHICS, or `backgrounds = black` in `[video]`.
+
+### Changed
+- **Esc quits when pressed twice** (enrique363/voldorium#16): the first press shows "Press Esc
+  again to quit" at the bottom of the screen for two seconds, without pausing the game, so a
+  stray key press no longer ends the game (or an online match). EXIT GAME in the main menu still
+  quits straight away.
+
+### Fixed
+- **One copy at a time**: starting Voldorium while it is already running (a double click counted
+  twice, say) brings the running game to the front instead of starting a second copy, which
+  played the intro and its music behind the menu and showed it after EXIT GAME. The restarts
+  into and out of an Online Versus match are not affected.
+- **Reverb** (enrique363/voldorium#14): the sound chip's effects processor read its delay
+  and work memory from the wrong places, so the reverb on the Art Gallery music, the intro and
+  wherever else the game uses it did not sound like the music's echo. It now matches the emulator
+  Flycast's.
+
 ## 1.1.10 (2026-11-14)
 
 ### Fixed

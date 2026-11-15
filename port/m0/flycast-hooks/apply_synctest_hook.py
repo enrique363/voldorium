@@ -319,7 +319,51 @@ static void autoplayPad()
 	u32 vs = loopCount;	// was the vsync counter, which varies with emulated workload
 	u32 mode = *(u32 *)&mem_b[0x8c24a584 & RAM_MASK];
 	u32 on = 0;
-	if (mode != 1)
+	// SC_AUTOPLAY_PADS="mode:frame:buttons,...": instead of the taps below, hold the buttons (hex,
+	// as above) for 4 loops at that many loops after the game entered that mode, for example
+	// "71:60:8,11:60:20,11:80:20,11:240:4" (Start in the intro, then two downs and A in the menu)
+	static std::vector<u32> script;
+	static bool parsed;
+	// counted in main-loop iterations (READ_PADS runs several times per loop); a press is a change
+	// from the previous loop's buttons, so every call within a loop sees it
+	static u32 lastMode = ~0u, entered, curLoop = ~0u, loopOn, prevLoopOn;
+	if (!parsed)
+	{
+		parsed = true;
+		for (const char *q = getenv("SC_AUTOPLAY_PADS"); q && *q;)
+		{
+			unsigned m, f, b;
+			if (sscanf(q, "%u:%u:%x", &m, &f, &b) != 3)
+				break;
+			script.push_back(m), script.push_back(f), script.push_back(b);
+			q = strchr(q, ',');
+			q = q ? q + 1 : nullptr;
+		}
+	}
+	if (mode != lastMode)
+		entered = vs, lastMode = mode;
+	if (!script.empty())
+	{
+		const u32 since = vs - entered;
+		for (size_t i = 0; i < script.size(); i += 3)
+			if (script[i] == mode && since >= script[i + 1] && since < script[i + 1] + 4)
+				on = script[i + 2];
+		if (vs != curLoop)
+		{
+			if (loopOn != prevLoopOn)
+				fprintf(stderr, "SC autoplay: loop %u mode %u (+%u) buttons %x\n", curLoop, mode, curLoop - entered, loopOn);
+			prevLoopOn = loopOn, curLoop = vs;
+		}
+		loopOn = on;
+		u32 *rec = (u32 *)&mem_b[PDS_ADDR & RAM_MASK];
+		rec[2] = on;
+		rec[3] = ~on;
+		rec[4] = on & ~prevLoopOn;
+		rec[5] = ~on & prevLoopOn;
+		rec[11] = prevLoopOn;
+		return;
+	}
+	else if (mode != 1)
 	{
 		// menus: tap START then A, 4 frames each, every 30 frames
 		if ((vs % 30) < 4)

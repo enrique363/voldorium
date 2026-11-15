@@ -651,7 +651,7 @@ online checklist). No game data goes in.
 | Settings | `m1/config.c` | `voldorium.ini` next to the executable: `[game]` disc (.gdi) and font, `[video]` fullscreen / window / msaa (16:9 always), `[audio]` enabled / volume, `[keys]` (SDL key names), `[net]` port / peer / player / delay / menu_delay. Each fills the `M1_*` variable the runtime reads unless it is already set, so development runs keep control |
 | Disc | `m1/config.c`, `m1/hle.c` | The game files come from the disc dump: the `.gdi` names the data track, IP.BIN is its first 16 sectors and 1ST_READ.BIN is found through ISO 9660 (identical to the extracted files). No `extracted/` folder is needed |
 | Command line | `m1/config.c` | `m1 <sc folder> [seconds]` as before; `m1 [--disc file.gdi] [--host port] [--join address:port] [--port p] [--player 1\|2] [--delay n] [--seconds n]`; no arguments: the game, after a one-time file picker for the disc dump when `[game] disc` is missing or gone (2026-10-18; the launcher window, `m1/launcher.c`, was retired: its settings live in the game's menus, its source kept in `m1/retired/`, not built) |
-| Window and input | `m1/render.c` | Alt+Enter or F11 toggles fullscreen (remembered), Esc quits, keys from `[keys]`, controller left stick as D-pad, hot-plugged controllers |
+| Window and input | `m1/render.c` | Alt+Enter or F11 toggles fullscreen (remembered), Esc twice within 2 s quits (the first shows a prompt, `draw_esc_prompt`), keys from `[keys]`, controller left stick as D-pad, hot-plugged controllers |
 | Netplay status | `m1/netplay.c` | Window title: "waiting for the opponent at ..." while connecting, then ping and rollback count |
 | Audio | `m1/aica.c` | A 46 ms queue cushion (playback pauses to refill if it ever runs dry; 2 underruns in 120 s paced, from 120), at most 0.1 s latency, `[audio] volume` |
 | Log | `m1/m1.c` | In the player form the per-DMA / per-read lines are off (`M1_VERBOSE=1` turns them on); an unexpected stop (an error) shows a message box; the end of an online match does not (back to the main menu, the reason in its help line) |
@@ -933,7 +933,8 @@ Found on the way: the scrolling wallpaper stops about 145 pixels short of the ri
 (the default since 2026-10-18) draws the background layer at full width,
 stretched by 4/3, while menus, text and logos in front stay undistorted (the main menu's
 SOULCALIBUR logo belongs to its background layer, so it stretches too); `replace` uses the 16:9
-replacement pictures below, with the blur fill where there are none; `blur` only blurs.
+replacement pictures below, with the blur fill where there are none; `blur` only blurs;
+`black` leaves the sides black, as on a 16:9 TV (issue #15).
 
 **Blur fill** (`render.c` `side_fill`, `M1_BLURFILL=0` turns it off): on such a
 screen the background layer (the same rule as the export) is drawn again, enlarged evenly by
@@ -990,7 +991,7 @@ fields (`m1/online.c`).
   own projection value (`0x8C266C28`), so 16:9 and 4:3 copies simulate differently (a mixed
   pair desynced at the first checksum); with the port now 16:9 only, every copy agrees. A match that does not connect
   in 20 s, a lost connection (GGPO's 5 s disconnect timeout: the opponent quit, closed the game
-  or dropped off the network), or Esc ends it, and both sides go back to the main menu:
+  or dropped off the network), or Esc (pressed twice) ends it, and both sides go back to the main menu:
   `online_return` restarts the program with `--back "<reason>"` and without the session's
   environment (`M1_NET*`; before this the new process inherited it, tried to rejoin the old
   match and sat on a black screen behind a hidden message box). `M1_BACK` boots unpaced and not

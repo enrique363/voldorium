@@ -9,7 +9,7 @@
  *                  A-C, ARM interrupts SCIEB / SCIPD / SCIRE / SCILV0-2, SH-4 interrupts
  *                  MCIEB / MCIPD / MCIRE, ARMRST (0x2C00), interrupt level L (0x2D00) and
  *                  acknowledge M (0x2D04)
- *   0x3000-0x45FF  DSP coefficients, addresses, program, work registers (stored, not run yet)
+ *   0x3000-0x45FF  DSP coefficients, addresses, program, work registers (run in dsp_step)
  *   SH-4 0x00710000 / 04: real-time clock, seconds since 1950 (from the virtual clock)
  * Channel registers: +00 KYONEX(15) KYONB(14) SSCTL(10) LPCTL(9) PCMS(8-7) SA[22:16](6-0),
  *   +04 SA[15:0], +08 LSA, +0C LEA, +10 D2R(15-11) D1R(10-6) AR(4-0),
@@ -23,8 +23,9 @@
  * virtual clock, so sound is deterministic and part of the rollback state (aica_state_*).
  *
  * Output: SDL audio unless M1_HEADLESS / M1_NOSOUND; M1_WAV=file also writes a WAV.
- * Not modelled yet: the DSP (reverb and other effects: the wet signal is missing), LFOs,
- * the filter envelope, AICA-internal DMA and MIDI.
+ * The DSP (reverb and the other effects) runs its 128-step program once per sample, as
+ * Flycast's interpreter (M1_NODSP=1: the dry signal only). Not modelled: AICA-internal DMA,
+ * MIDI and the CD audio input (EXTS; the game has no CD audio tracks).
  */
 #include "m1.h"
 #include "arm7.h"
@@ -405,8 +406,7 @@ static s32 low_pass(int c, Chan *k, s32 sample)
 typedef struct
 {
 	s32 temp[128], mems[32], mixs[16], efreg[16];
-	s32 frc, y, adrs;	/* FRC_REG, Y_REG, ADRS_REG */
-	u32 dec;			/* MDEC_CT */
+	u32 dec;	/* MDEC_CT */
 } Dsp;
 static Dsp dsp;
 static int dsp_active(void);
@@ -849,18 +849,21 @@ static s32 unpack16(u16 val)
 	return uval >> exponent;
 }
 
+/* As Flycast (dsp_interp.cpp) and MAME's AICA DSP: the first word is TRA (15-9), TWT (8) and
+   TWA (7-1), one bit higher than the Saturn SCSP's; an empty step still runs (X = Y-scaled TEMP
+   plus TEMP: it feeds the next step's shifter); a ring buffer read (MRD, odd steps) reaches MEMS
+   (IWT) two steps later; FRC_REG, Y_REG and ADRS_REG start at 0 every sample; EFREG keeps its
+   value until written. EXTS (IRA 0x30-0x31, the CD audio input) reads 0: the game has no CD
+   audio tracks. */
 static void dsp_step(void)
 {
-	memset(dsp.efreg, 0, sizeof(dsp.efreg));
 	const u32 rbp = (u32)(rg(R_RBP) & 0xfff) << 11, rbl = 0x2000u << ((rg(R_RBP) >> 13) & 3);	/* words */
-	s32 acc = 0, shifted = 0, memval = 0;
+	s32 acc = 0, shifted = 0, memval[4] = { 0 }, frc = 0, yreg = 0, adrs = 0;
 	for (u32 step = 0; step < 128; step++)
 	{
 		const u16 i0 = rg(R_MPRO + step * 16), i1 = rg(R_MPRO + step * 16 + 4), i2 = rg(R_MPRO + step * 16 + 8),
 				  i3 = rg(R_MPRO + step * 16 + 12);
-		if (!i0 && !i1 && !i2 && !i3)
-			continue;
-		const u32 tra = (i0 >> 8) & 0x7f, twt = (i0 >> 7) & 1, twa = i0 & 0x7f;
+		const u32 tra = (i0 >> 9) & 0x7f, twt = (i0 >> 8) & 1, twa = (i0 >> 1) & 0x7f;
 		const u32 xsel = (i1 >> 15) & 1, ysel = (i1 >> 13) & 3, ira = (i1 >> 7) & 0x3f, iwt = (i1 >> 6) & 1, iwa = (i1 >> 1) & 0x1f;
 		const u32 table = (i2 >> 15) & 1, mwt = (i2 >> 14) & 1, mrd = (i2 >> 13) & 1, ewt = (i2 >> 12) & 1, ewa = (i2 >> 8) & 15,
 				  adrl = (i2 >> 7) & 1, frcl = (i2 >> 6) & 1, shift = (i2 >> 4) & 3, yrl = (i2 >> 3) & 1, negb = (i2 >> 2) & 1,
@@ -874,11 +877,7 @@ static void dsp_step(void)
 			inputs = dsp.mixs[ira - 0x20] << 4;
 		inputs = sx24(inputs);
 		if (iwt)
-		{
-			dsp.mems[iwa] = memval;
-			if (ira == iwa)
-				inputs = memval;
-		}
+			dsp.mems[iwa] = memval[step & 3];	/* read two steps earlier */
 		/* operands */
 		s32 b = 0;
 		if (!zero)
@@ -890,15 +889,15 @@ static void dsp_step(void)
 		const s32 x = xsel ? inputs : sx24(dsp.temp[(tra + dsp.dec) & 0x7f]);
 		s32 y;
 		if (ysel == 0)
-			y = dsp.frc;
+			y = frc;
 		else if (ysel == 1)
 			y = (s16)rg(R_COEF + step * 4) >> 3;
 		else if (ysel == 2)
-			y = (dsp.y >> 11) & 0x1fff;
+			y = (yreg >> 11) & 0x1fff;
 		else
-			y = (dsp.y >> 4) & 0x0fff;
+			y = (yreg >> 4) & 0x0fff;
 		if (yrl)
-			dsp.y = inputs;
+			yreg = inputs;
 		/* shifter (on the accumulator of the previous step) */
 		if (shift == 0)
 			shifted = clamp24(acc);
@@ -914,14 +913,14 @@ static void dsp_step(void)
 		if (twt)
 			dsp.temp[(twa + dsp.dec) & 0x7f] = shifted;
 		if (frcl)
-			dsp.frc = shift == 3 ? shifted & 0xfff : (shifted >> 11) & 0x1fff;
+			frc = shift == 3 ? shifted & 0xfff : (shifted >> 11) & 0x1fff;
 		if ((mrd || mwt) && (step & 1))
 		{
 			u32 addr = rg(R_MADRS + masa * 4);
 			if (!table)
 				addr += dsp.dec;
 			if (adreb)
-				addr += (u32)dsp.adrs & 0xfff;
+				addr += (u32)adrs & 0xfff;
 			if (nxadr)
 				addr++;
 			addr = table ? addr & 0xffff : addr & (rbl - 1);
@@ -930,7 +929,7 @@ static void dsp_step(void)
 			{
 				u16 w;
 				memcpy(&w, aica_ram + byte, 2);
-				memval = nofl ? (s32)(s16)w << 8 : unpack16(w);
+				memval[(step + 2) & 3] = nofl ? (s32)(s16)w << 8 : unpack16(w);
 			}
 			if (mwt)
 			{
@@ -939,9 +938,9 @@ static void dsp_step(void)
 			}
 		}
 		if (adrl)
-			dsp.adrs = shift == 3 ? (shifted >> 12) & 0xfff : inputs >> 16;
+			adrs = shift == 3 ? (shifted >> 12) & 0xfff : inputs >> 16;
 		if (ewt)
-			dsp.efreg[ewa] += shifted >> 8;
+			dsp.efreg[ewa] = shifted >> 8;
 	}
 	dsp.dec--;
 	memset(dsp.mixs, 0, sizeof(dsp.mixs));

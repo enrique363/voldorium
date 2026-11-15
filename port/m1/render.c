@@ -777,6 +777,8 @@ void config_set(const char *section, const char *key, const char *value);
 void config_save(void);
 int video_text_sharp(void);
 
+static int esc_confirmed(void);
+
 void video_poll(void)
 {
 	if (!video_enabled())
@@ -801,6 +803,8 @@ void video_poll(void)
 			}
 			else if (k == SDLK_F12)
 				player_shot = 1;	/* saved after the next frame (player_screenshot) */
+			else if (k == SDLK_ESCAPE && !esc_confirmed())
+				;	/* the first press only shows "Press Esc again to quit" (issue #16) */
 			else if (k == SDLK_ESCAPE)
 			{
 				if (getenv("M1_NET_PRELUDE"))
@@ -1161,22 +1165,22 @@ void video_next_hud(void)
 	config_save();
 	setting_env("M1_HUD", names[hud_mode]);
 }
-/* [video] backgrounds (M1_BGMODE): 0 blur, 1 replace, 2 stretch (default); see side_fill */
+/* [video] backgrounds (M1_BGMODE): 0 blur, 1 replace, 2 stretch (default), 3 black; see side_fill */
 static int bg_mode = -1;
 int video_backgrounds(void)
 {
 	if (bg_mode < 0)
 	{
 		const char *m = getenv("M1_BGMODE");
-		bg_mode = m && !strcmp(m, "replace") ? 1 : m && !strcmp(m, "blur") ? 0 : 2;
+		bg_mode = m && !strcmp(m, "replace") ? 1 : m && !strcmp(m, "blur") ? 0 : m && !strcmp(m, "black") ? 3 : 2;
 	}
 	return bg_mode;
 }
 
 void video_next_backgrounds(void)
 {
-	static const int next[3] = { 1, 2, 0 };	/* stretch, blur, replace, stretch... */
-	static const char *const names[3] = { "blur", "replace", "stretch" };
+	static const int next[4] = { 3, 2, 0, 1 };	/* stretch, blur, black, replace, stretch... */
+	static const char *const names[4] = { "blur", "replace", "stretch", "black" };
 	bg_mode = next[video_backgrounds()];
 	config_set("video", "backgrounds", names[bg_mode]);
 	config_save();
@@ -1808,6 +1812,7 @@ static void draw_replacement(int id, const u8 *rgba, u32 w, u32 h)
 	 replace  its 16:9 replacement picture if there is one (returns 1: the layer's own
 			  polygons are then not drawn, see bg_layer), else the blur fill
 	 blur	 the blur fill only
+	 black	 nothing: black sides, as on a 16:9 TV (issue #15)
    M1_BLURFILL=0 turns the blur fill off. */
 static u8 *bg_layer;
 static int side_fill(TaCtx *c, const u32 *order, u32 n)
@@ -1857,6 +1862,8 @@ static int side_fill(TaCtx *c, const u32 *order, u32 n)
 			return 0;
 		}
 	}
+	if (mode == 3)
+		return 0;	/* black sides */
 	if (mode == 2 && !bg_tiled_picture)
 		return 2;	/* stretch; a tiled picture gets the blur fill instead: markers are placed on it */
 	if (!blur_prog)
@@ -2306,51 +2313,51 @@ void video_record_vblank(void)
 
 static void render_frame_draw(TaCtx *c);
 
-/* "ver. 1.0.1" in the lower right corner, in the BIOS font like the game's help line, white with
-   a dark shadow; nothing without the font. A newer release (online.c's update check) is added:
-   "ver. 1.1.6 (1.1.7 is out)". */
+/* Text over the finished picture in the BIOS font, like the game's help line: white with a dark
+   outline and shadow; nothing without the font. Output only, never the game's state. */
 const char *online_latest(void);
-static GLuint ver_prog, ver_tex;
+static GLuint label_prog;
 static GLint u_v_col;
-static int ver_w;
-static char ver_text[48];
-static void draw_version(int rw, int rh)
+typedef struct
+{
+	GLuint tex;
+	int w;
+	char text[48];
+} Label;
+/* text 18 of 480 lines high, 8 lines above the bottom: at the right edge (right, 10 lines in)
+   or centred, at opacity a */
+static void draw_label(Label *lb, const char *text, int rw, int rh, int right, float a)
 {
 	const u8 *font = hw_font_12x24();
 	if (!font)
 		return;
 	if (!blur_prog)
 		blur_init();	/* its full-target triangle and vertex shader */
-	if (!ver_prog)
+	if (!label_prog)
 	{
 		static const char *fs =
 			"#version 330 core\n"
 			"in vec2 uv; out vec4 o;\n"
 			"uniform sampler2D src; uniform vec4 col;\n"
 			"void main() { o = vec4(col.rgb, col.a * texture(src, uv).r); }\n";
-		ver_prog = glCreateProgram();
-		glAttachShader(ver_prog, shader(GL_VERTEX_SHADER, blur_vs));
-		glAttachShader(ver_prog, shader(GL_FRAGMENT_SHADER, fs));
-		glLinkProgram(ver_prog);
-		u_v_col = glGetUniformLocation(ver_prog, "col");
+		label_prog = glCreateProgram();
+		glAttachShader(label_prog, shader(GL_VERTEX_SHADER, blur_vs));
+		glAttachShader(label_prog, shader(GL_FRAGMENT_SHADER, fs));
+		glLinkProgram(label_prog);
+		u_v_col = glGetUniformLocation(label_prog, "col");
 	}
-	char text[48];
-	if (online_latest()[0])
-		snprintf(text, sizeof(text), "ver. %s (%s is out)", VOLDORIUM_VERSION, online_latest());
-	else
-		snprintf(text, sizeof(text), "ver. %s", VOLDORIUM_VERSION);
-	if (!ver_tex || strcmp(text, ver_text))
+	if (!lb->tex || strcmp(text, lb->text))
 	{
-		snprintf(ver_text, sizeof(ver_text), "%s", text);
-		if (ver_tex)
-			glDeleteTextures(1, &ver_tex);
+		snprintf(lb->text, sizeof(lb->text), "%s", text);
+		if (lb->tex)
+			glDeleteTextures(1, &lb->tex);
 		/* the text as a coverage mask, bottom row first (GL); glyph i is ASCII 32 + i */
-		const int n = (int)strlen(text);
-		ver_w = n * 12;
-		u8 *px = calloc((size_t)ver_w * 24, 1);
+		const int n = (int)strlen(lb->text);
+		lb->w = n * 12;
+		u8 *px = calloc((size_t)lb->w * 24, 1);
 		for (int k = 0; k < n; k++)
 		{
-			const int ch = (u8)text[k];
+			const int ch = (u8)lb->text[k];
 			if (ch < 33 || ch > 126)
 				continue;
 			const u8 *g = font + (ch - 32) * 36;
@@ -2359,13 +2366,13 @@ static void draw_version(int rw, int rh)
 				{
 					const int bit = y * 12 + x;
 					if (g[bit >> 3] & (0x80 >> (bit & 7)))
-						px[(23 - y) * ver_w + k * 12 + x] = 255;
+						px[(23 - y) * lb->w + k * 12 + x] = 255;
 				}
 		}
-		glGenTextures(1, &ver_tex);
-		glBindTexture(GL_TEXTURE_2D, ver_tex);
+		glGenTextures(1, &lb->tex);
+		glBindTexture(GL_TEXTURE_2D, lb->tex);
 		glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, ver_w, 24, 0, GL_RED, GL_UNSIGNED_BYTE, px);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, lb->w, 24, 0, GL_RED, GL_UNSIGNED_BYTE, px);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -2373,22 +2380,21 @@ static void draw_version(int rw, int rh)
 		glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
 		free(px);
 	}
-	/* 18 of 480 lines high, 10 lines from the bottom and the right edge */
 	const float s = rh / 480.0f * 0.75f;
-	const int w = (int)(ver_w * s + 0.5f), h = (int)(24 * s + 0.5f);
-	const int x = rw - (int)(10 * rh / 480.0f) - w, y = (int)(8 * rh / 480.0f);
+	const int w = (int)(lb->w * s + 0.5f), h = (int)(24 * s + 0.5f);
+	const int x = right ? rw - (int)(10 * rh / 480.0f) - w : (rw - w) / 2, y = (int)(8 * rh / 480.0f);
 	const int sh = rh >= 1440 ? 3 : rh >= 720 ? 2 : 1;	/* outline width in pixels */
-	glUseProgram(ver_prog);
+	glUseProgram(label_prog);
 	glBindVertexArray(blur_vao);
 	glDisable(GL_SCISSOR_TEST);
 	glDisable(GL_DEPTH_TEST);
 	glDisable(GL_STENCIL_TEST);
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-	glBindTexture(GL_TEXTURE_2D, ver_tex);
-	/* a dark outline (8 directions) and a drop shadow, so it reads over any menu background (the
+	glBindTexture(GL_TEXTURE_2D, lb->tex);
+	/* a dark outline (8 directions) and a drop shadow, so it reads over any background (the
 	   unlocked main menu's bright collage too) */
-	glUniform4f(u_v_col, 0, 0, 0, 0.85f);
+	glUniform4f(u_v_col, 0, 0, 0, 0.85f * a);
 	for (int dy = -1; dy <= 1; dy++)
 		for (int dx = -1; dx <= 1; dx++)
 			if (dx || dy)
@@ -2397,16 +2403,58 @@ static void draw_version(int rw, int rh)
 				glDrawArrays(GL_TRIANGLES, 0, 3);
 			}
 	glViewport(x + 2 * sh, y - 2 * sh, w, h);
-	glUniform4f(u_v_col, 0, 0, 0, 0.6f);
+	glUniform4f(u_v_col, 0, 0, 0, 0.6f * a);
 	glDrawArrays(GL_TRIANGLES, 0, 3);
 	glViewport(x, y, w, h);
-	glUniform4f(u_v_col, 0.92f, 0.92f, 0.92f, 0.9f);
+	glUniform4f(u_v_col, 0.92f, 0.92f, 0.92f, 0.9f * a);
 	glDrawArrays(GL_TRIANGLES, 0, 3);
 	glViewport(0, 0, rw, rh);
 	glUseProgram(prog);
 	glBindVertexArray(vao);
 	glBindBuffer(GL_ARRAY_BUFFER, vbo);
 	glEnable(GL_DEPTH_TEST);
+}
+
+/* "ver. 1.0.1" in the main menu's lower right corner. A newer release (online.c's update check)
+   is added: "ver. 1.1.6 (1.1.7 is out)". */
+static void draw_version(int rw, int rh)
+{
+	static Label lb;
+	char text[48];
+	if (online_latest()[0])
+		snprintf(text, sizeof(text), "ver. %s (%s is out)", VOLDORIUM_VERSION, online_latest());
+	else
+		snprintf(text, sizeof(text), "ver. %s", VOLDORIUM_VERSION);
+	draw_label(&lb, text, rw, rh, 1, 1);
+}
+
+/* Esc quits only when pressed twice (issue #16): the first press shows "Press Esc again to quit"
+   at the bottom centre for ESC_MS; a second press within that time quits (or leaves an online
+   match). The game runs on meanwhile. EXIT GAME in the main menu and closing the window still
+   quit straight away. Wall-clock time: output only, never the game's state. */
+#define ESC_MS 2000
+static u32 esc_at;	/* SDL_GetTicks of the first press, 0: none */
+static int esc_confirmed(void)
+{
+	const u32 now = SDL_GetTicks();
+	if (esc_at && now - esc_at < ESC_MS)
+		return 1;
+	esc_at = now ? now : 1;
+	return 0;
+}
+static void draw_esc_prompt(int rw, int rh)
+{
+	static Label lb;
+	if (!esc_at)
+		return;
+	const u32 t = SDL_GetTicks() - esc_at;
+	if (t >= ESC_MS)
+	{
+		esc_at = 0;
+		return;
+	}
+	const float a = t < ESC_MS - 400 ? 1.0f : (float)(ESC_MS - t) / 400.0f;	/* fades out at the end */
+	draw_label(&lb, "Press Esc again to quit", rw, rh, 0, a);
 }
 /* M1_PERF=1: every 300 renders, the mean wall time per frame spent in the game (everything
    between two renders, pacing included unless M1_FAST) and in drawing, with the game mode */
@@ -2584,6 +2632,7 @@ static void render_frame_draw(TaCtx *c)
 	}
 	if (rd32(0x8c24a584) == 11)	/* game mode 11: the main menu */
 		draw_version(rw, rh);
+	draw_esc_prompt(rw, rh);
 	/* resolve the samples, then the screenshots read the finished picture */
 	glDisable(GL_SCISSOR_TEST);
 	glBindFramebuffer(GL_READ_FRAMEBUFFER, frame_fbo);

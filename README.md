@@ -205,7 +205,8 @@ anti-aliasing, VSync and where the fight HUD sits (as in the original 4:3 game b
 halfway out, or at the screen's edges); its second page, **MORE SETTINGS**, has loading speed
 (original or fast), how 4:3 menu pictures fill 16:9, sharp or smooth text, and the sound volume.
 **F12** saves a screenshot (PNG, in the `screenshots` folder next to the game; Xbox Game Bar
-cannot capture the game's window). **EXIT GAME**, the last main menu entry, quits (as Esc does).
+cannot capture the game's window). **EXIT GAME**, the last main menu entry, quits straight away. **Esc** quits too, when pressed
+twice: the first press shows "Press Esc again to quit" for two seconds.
 Controllers and keyboard go through SDL2.
 
 **Controls.** Keyboard: arrow keys = D-pad, Z X A S = the Dreamcast's A B X Y, Q / W = L / R,
@@ -256,7 +257,7 @@ closed.
 | | `msaa` | `0`, `2`, `4`, `8` | ✓ | Anti-aliasing. |
 | | `vsync` | `1`, `0` | ✓ | On: no tearing. Off: lowest input delay. |
 | | `hud` | `4:3`, `middle`, `edges` | ✓ | Where the fight HUD sits in 16:9. Only your own screen, also online. |
-| | `backgrounds` | `stretch`, `blur`, `replace` | ✓ | How 4:3 menu and loading pictures fill 16:9 (`replace`: 16:9 art from the `art16x9` folder). |
+| | `backgrounds` | `stretch`, `blur`, `black`, `replace` | ✓ | How 4:3 menu and loading pictures fill 16:9 (`replace`: 16:9 art from the `art16x9` folder). |
 | | `text` | `smooth`, `sharp` | ✓ | Menu and HUD text upscaled with smooth edges, or the original pixels. |
 | `[audio]` | `enabled` | `1`, `0` | | `0`: no sound at all. |
 | | `volume` | `0` to `200` | ✓ | Sound volume in percent (the menu steps 0, 25, 50, 75, 100). |
