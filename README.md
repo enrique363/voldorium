@@ -32,8 +32,9 @@ together with a small native runtime that stands in for the Dreamcast hardware. 
 - **Fast loading** (or the original loading times, if you prefer).
 - A built-in virtual memory card: progress and unlocks are saved.
 - **Keyboard and controllers** (Xbox layout, the Steam Deck's controls): a second controller is
-  player 2 for VS BATTLE; keys and the shoulder buttons and triggers can be remapped in
-  `voldorium.ini`.
+  player 2 for VS BATTLE; keyboard keys can be remapped in `voldorium.ini`.
+- **Customizable bumpers and triggers**: set what LB, RB, LT and RT press in `[pad]` in
+  `voldorium.ini`, any Dreamcast button or several at once (`lt = a+b`).
 - **GRAPHICS menu in the game** (two pages) for every picture setting; everything else in a
   documented `voldorium.ini`.
 - **Native Windows and Linux versions**: no emulator. The game module is built once on your own
