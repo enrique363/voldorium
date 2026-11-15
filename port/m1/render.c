@@ -637,10 +637,27 @@ void video_resolution_label(char *buf, size_t n)
 		const float a = picture_aspect(w, h);
 		const int pw = (int)(h * a + 0.5f) > w ? w : (int)(h * a + 0.5f), ph = (int)(pw / a + 0.5f) > h ? h : (int)(pw / a + 0.5f);
 		if (res_pct)
-			snprintf(buf, n, "FSR %d%% %d X %d", res_pct, pw * res_pct / 100, ph * res_pct / 100);
+			snprintf(buf, n, "FSR %s", res_pct >= 77 ? "ULTRA QUALITY" : res_pct >= 67 ? "QUALITY" : res_pct >= 59 ? "BALANCED" : "PERFORMANCE");
 		else
 			snprintf(buf, n, "NATIVE %d X %d", pw, ph);
 	}
+}
+
+/* the resolution line's help: with FSR, the size the game is drawn at */
+void video_resolution_help(char *buf, size_t n)
+{
+	if (res_w || !res_pct)
+	{
+		snprintf(buf, n, "Resolution the game draws at. Select to change.");
+		return;
+	}
+	int w, h;
+	display_size(&w, &h);
+	if (win && !video_is_fullscreen())
+		SDL_GL_GetDrawableSize(win, &w, &h);
+	const float a = picture_aspect(w, h);
+	const int pw = (int)(h * a + 0.5f) > w ? w : (int)(h * a + 0.5f), ph = (int)(pw / a + 0.5f) > h ? h : (int)(pw / a + 0.5f);
+	snprintf(buf, n, "Drawn at %d x %d and sharpened up to your screen.", pw * res_pct / 100, ph * res_pct / 100);
 }
 
 /* native, FSR 77%, 67%, 59%, 50% (of native), then the sizes up to the monitor's, then native */

@@ -7,8 +7,9 @@ All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); 
 ### Added
 - **FSR 1 upscaling** (from enrique363/voldorium#13): four new resolution choices draw the game at
   77%, 67%, 59% or 50% of your screen's resolution and enlarge it with AMD FidelityFX Super
-  Resolution 1, which keeps edges sharp, for slower PCs and handhelds. GRAPHICS > resolution
-  now goes NATIVE, FSR 77%, 67%, 59%, 50%, then the fixed sizes; in `[video]`, `resolution = 67%`.
+  Resolution 1, which keeps edges sharp, for slower PCs and handhelds. The resolution line in
+  GRAPHICS now goes NATIVE, FSR ULTRA QUALITY, QUALITY, BALANCED, PERFORMANCE, then the fixed
+  sizes (the help line shows the size it draws at); in `[video]`, `resolution = 67%`.
   A fixed size smaller than the screen is enlarged with FSR too; `upscale = linear` keeps the
   plain enlargement of earlier versions.
 - **BACKGROUNDS BLACK** (enrique363/voldorium#15): a fourth choice for 4:3 menu and loading

@@ -1011,6 +1011,7 @@ static void build_lines(u32 cur)
 
 /* the GRAPHICS submenu: one line per setting, its current value as the label */
 void video_resolution_label(char *buf, size_t n);
+void video_resolution_help(char *buf, size_t n);
 int video_is_fullscreen(void);
 int video_msaa(void);
 void video_toggle_fullscreen(void);
@@ -1056,7 +1057,9 @@ static void build_graphics(u32 cur)
 	{
 	line(video_is_fullscreen() ? "FULL SCREEN" : "WINDOW", "Display: full screen or a window. Select to switch.", V_G_DISPLAY, 1);
 	video_resolution_label(l, sizeof(l));
-	line(l, "Resolution the game draws at. Select to change.", V_G_RES, 1);
+	char rh[96];
+	video_resolution_help(rh, sizeof(rh));
+	line(l, rh, V_G_RES, 1);
 	const int aa = video_msaa();
 	snprintf(l, sizeof(l), "ANTI-ALIASING %s", aa == 2 ? "2X" : aa == 4 ? "4X" : aa == 8 ? "8X" : "OFF");
 	line(l, "Smooths jagged edges. Select to change it.", V_G_AA, 1);
