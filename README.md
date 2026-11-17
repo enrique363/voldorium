@@ -82,6 +82,34 @@ trademark of Bandai Namco Entertainment Inc.; Dreamcast is a trademark of Sega C
 Not in the repository, by design (see `.gitignore`): `disc/` (your dump), `extracted/`, anything
 generated from them (`port/build/`), Ghidra projects, traces, and `port/art16x9/refs.txt`.
 
+## System requirements
+
+SoulCalibur is an old game, but Voldorium is not an emulator for old machines. It recompiles the
+whole game to run natively, draws it at modern resolutions in widescreen with anti-aliasing and
+FSR upscaling, runs rollback netcode online, and builds the game module from your disc on your
+own PC. It is made and tested for current desktop PCs.
+
+**Required** (it will not start without these):
+- A 64-bit (x86-64) CPU, with Windows 10 or 11 (64-bit), or Linux with glibc 2.28 or newer
+- A graphics card and driver with **OpenGL 3.3**
+- About 1 GB of free disk space for the first start
+
+**Supported and tested:**
+- Desktop PCs with a current CPU and a **dedicated graphics card** from NVIDIA or AMD, with up to
+  date drivers. Development and testing are done on a Ryzen 7 7700 with a GeForce RTX 4060.
+- The **Steam Deck on SteamOS**, with the Linux version (see [Steam Deck](#steam-deck)).
+
+**Not supported:**
+- **Older PCs and laptops**, and **integrated graphics** (graphics built into the CPU, as in
+  most laptops and office PCs), apart from the Steam Deck on SteamOS
+- Windows installed on the Steam Deck
+- 32-bit systems, Windows 7 and 8, and macOS
+
+Some of these machines may run the game, but they are not tested and we can't fix problems that
+only happen on them. If the game runs in slow motion, with stretched or crackling sound, the PC
+can't keep up with 60 frames per second. A lower resolution or an FSR preset in GRAPHICS can help
+when the graphics card is what holds it back, but not a slow CPU.
+
 ## Installing
 
 You need Windows 10 or 11, your own disc dump of SoulCalibur (USA, T-1401N, V1.000) as a
