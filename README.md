@@ -312,7 +312,7 @@ closed.
 | | `msaa` | `0`, `2`, `4`, `8` | ✓ | Anti-aliasing. |
 | | `vsync` | `1`, `0` | ✓ | On: no tearing. Off: lowest input delay. |
 | | `hud` | `4:3`, `middle`, `edges` | ✓ | Where the fight HUD sits in 16:9. Only your own screen, also online. |
-| | `backgrounds` | `stretch`, `blur`, `black`, `replace` | ✓ | How 4:3 menu and loading pictures fill 16:9 (`replace`: 16:9 art from the `art16x9` folder). |
+| | `backgrounds` | `stretch`, `blur`, `black`, `replace` | ✓ | How 4:3 menu and loading pictures fill 16:9 (`replace`: 16:9 art from the `art16x9` folder). The Mission Battle map and Art Gallery pictures are never stretched: `stretch` gives them blurred sides. |
 | | `text` | `smooth`, `sharp` | ✓ | Menu and HUD text upscaled with smooth edges, or the original pixels. |
 | `[audio]` | `enabled` | `1`, `0` | | `0`: no sound at all. |
 | | `volume` | `0` to `200` | ✓ | Sound volume in percent (the menu steps 0, 25, 50, 75, 100). |

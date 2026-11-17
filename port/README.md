@@ -935,6 +935,11 @@ stretched by 4/3, while menus, text and logos in front stay undistorted (the mai
 SOULCALIBUR logo belongs to its background layer, so it stretches too); `replace` uses the 16:9
 replacement pictures below, with the blur fill where there are none; `blur` only blurs;
 `black` leaves the sides black, as on a 16:9 TV (issue #15).
+Two pictures never stretch and get the blur fill under `stretch`: the Mission Battle map (its
+markers sit on it), and the Art Gallery's pictures (artwork; told from the gallery's menus by
+their filtered tiles, TSP filter bits, while the menus' background is point sampled). The map's
+scroll margin of up to a tile beyond the 4:3 screen (a save with more than one region) is the
+map, not a wallpaper, and is clipped to the 4:3 screen (issue #17).
 
 **Blur fill** (`render.c` `side_fill`, `M1_BLURFILL=0` turns it off): on such a
 screen the background layer (the same rule as the export) is drawn again, enlarged evenly by

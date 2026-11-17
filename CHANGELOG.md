@@ -2,6 +2,20 @@
 
 All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); see the README.
 
+## 1.2.1 (2026-11-17)
+
+### Changed
+- **Art Gallery pictures are never stretched**: with BACKGROUNDS STRETCH (the default), the
+  gallery's artwork is now shown at its true shape with blurred sides, like BACKGROUNDS BLUR, also
+  with its caption open and while changing pictures. The gallery's menus still stretch.
+
+### Fixed
+- **Mission Battle map sides** (enrique363/voldorium#17): once more than one region is open, the
+  map draws a margin of map pieces beyond the 4:3 screen, for its scrolling. That margin was taken
+  for a repeating wallpaper, so the sides showed loose pieces of the wrong part of the map and a
+  black corner, jumping as the map changed region. The margin is now left out, and the sides
+  follow the background setting (blurred, black...) as on the rest of the map.
+
 ## 1.2.0 (2026-11-15)
 
 ### Added

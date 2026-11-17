@@ -1974,6 +1974,7 @@ static void tiled_layer(const TaCtx *c)
 }
 
 static int bg_tiled_picture;	/* the background is the mission battle map (bg_mask) */
+static int bg_gallery_picture;	/* the Art Gallery's picture viewer is showing (bg_mask) */
 
 /* marks the polygons of the frame's 4:3 background layer; returns how many */
 static u32 bg_mask(const TaCtx *c, u8 *mask)
@@ -1982,6 +1983,13 @@ static u32 bg_mask(const TaCtx *c, u8 *mask)
 	const int battle = mode == 1 || mode == 23 || mode == 45;	/* fight, demo fight, demo replay */
 	memset(mask, 0, c->np);
 	bg_tiled_picture = 0;
+	/* the Art Gallery (game mode 61): its menus' tiled background is darkened and point sampled,
+	   the picture viewer's tiles are filtered (TSP filter mode, bits 13-14), with or without a
+	   caption over them and through the fades between pictures */
+	bg_gallery_picture = 0;
+	if (mode == 61)
+		for (u32 i = 0; i < c->np && !bg_gallery_picture; i++)
+			bg_gallery_picture = c->p[i].cls == M1_2D_TILED && ((c->p[i].tsp >> 13) & 3);
 	if (battle)
 		return 0;
 	float zmax = -1, tx0 = 1e30f, tx1 = -1e30f;
@@ -2021,7 +2029,11 @@ static u32 bg_mask(const TaCtx *c, u8 *mask)
 	/* a repeating tiled layer is no part of a 4:3 picture: its pieces at the screen edges would
 	   otherwise make the whole layer switch between background and not as it scrolls */
 	tiled_layer(c);
-	const int wallpaper = tx0 < -32 || tx1 > 672 || tiled_period > 0;
+	/* the mission battle map once it can scroll (a save with more than one region) draws a margin
+	   of up to a tile (64) beyond the 4:3 screen on either side: still the map, not a wallpaper
+	   (issue #17); the draw loop keeps that margin out of the sides */
+	const int map_margin = (mode == 62 || mode == 63) && tx0 <= 1 && tx1 >= 639 && tx0 >= -130 && tx1 <= 770;
+	const int wallpaper = !map_margin && (tx0 < -32 || tx1 > 672 || tiled_period > 0);
 	/* the mission battle map (game modes 62/63, a tiled picture of exactly the screen, scrolled
 	   through its texture) is the background by itself: other pieces at the edges (the map's
 	   flying comet) would move the depth limit, and the map's markers with it, between frames.
@@ -2080,7 +2092,7 @@ static void draw_replacement(int id, const u8 *rgba, u32 w, u32 h)
 	 stretch  the background layer is drawn at full width (stretched by 4/3; menus, logos and
 			  text in front stay undistorted). Returns 2: see the draw loop. Not for a tiled
 			  picture of the screen (the mission battle map): its markers would leave their
-			  places, so it gets the blur fill
+			  places, so it gets the blur fill; nor for the Art Gallery's pictures (blur fill)
 	 replace  its 16:9 replacement picture if there is one (returns 1: the layer's own
 			  polygons are then not drawn, see bg_layer), else the blur fill
 	 blur	 the blur fill only
@@ -2136,8 +2148,9 @@ static int side_fill(TaCtx *c, const u32 *order, u32 n)
 	}
 	if (mode == 3)
 		return 0;	/* black sides */
-	if (mode == 2 && !bg_tiled_picture)
-		return 2;	/* stretch; a tiled picture gets the blur fill instead: markers are placed on it */
+	if (mode == 2 && !bg_tiled_picture && !bg_gallery_picture)
+		return 2;	/* stretch; the mission battle map gets the blur fill instead (markers are placed
+					   on it), and so do the Art Gallery's pictures (artwork, never distorted) */
 	if (!blur_prog)
 	{
 		blur_init();
@@ -2370,11 +2383,21 @@ static void draw_lists(TaCtx *c)
 				glEnable(GL_SCISSOR_TEST);
 				glScissor(x0, y0, x1 - x0, y1 - y0);
 			}
+			else if (bg_tiled_picture && replaced != 2 && p->cls == M1_2D_TILED)
+			{
+				/* the mission battle map: its scroll margin beyond the 4:3 screen (issue #17) is
+				   left out, so the sides show the background setting (blur, black, ...) */
+				const float cx0 = 320 + (xa + (0 - xa) * xk - 320) * view_zoom,
+							cx1 = 320 + (xa + (640 - xa) * xk - 320) * view_zoom;
+				const int x0 = vp_x + (int)(cx0 * vp_w / tgt_w), x1 = vp_x + (int)(cx1 * vp_w / tgt_w);
+				glEnable(GL_SCISSOR_TEST);
+				glScissor(x0, vp_y, x1 - x0, vp_h);
+			}
 			else
 				glDisable(GL_SCISSOR_TEST);
 			glUniform1f(u_xoff, 0);
 			draw_strip(c, p);
-			if (p->cls == M1_2D_TILED && xk != 1 && tiled_period > 0 && !(replaced == 2 && bg_layer[idx[j]]))
+			if (p->cls == M1_2D_TILED && xk != 1 && tiled_period > 0 && !bg_tiled_picture && !(replaced == 2 && bg_layer[idx[j]]))
 			{
 				/* copies one period or more to either side fill 16:9 (virtual x -249..889); a 4:3
 				   layer's copies only where the layer itself draws nothing, so nothing is drawn twice */
