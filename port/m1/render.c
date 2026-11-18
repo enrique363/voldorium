@@ -52,6 +52,7 @@
 	X(PFNGLGETSHADERIVPROC, glGetShaderiv) \
 	X(PFNGLGETUNIFORMLOCATIONPROC, glGetUniformLocation) \
 	X(PFNGLLINKPROGRAMPROC, glLinkProgram) \
+	X(PFNGLMULTIDRAWARRAYSPROC, glMultiDrawArrays) \
 	X(PFNGLRENDERBUFFERSTORAGEPROC, glRenderbufferStorage) \
 	X(PFNGLSHADERSOURCEPROC, glShaderSource) \
 	X(PFNGLUNIFORM1FPROC, glUniform1f) \
@@ -87,6 +88,7 @@ GL_FUNCS(X)
 #define glGetShaderiv p_glGetShaderiv
 #define glGetUniformLocation p_glGetUniformLocation
 #define glLinkProgram p_glLinkProgram
+#define glMultiDrawArrays p_glMultiDrawArrays
 #define glRenderbufferStorage p_glRenderbufferStorage
 #define glShaderSource p_glShaderSource
 #define glUniform1f p_glUniform1f
@@ -134,6 +136,7 @@ static SDL_GLContext glc;
 static SDL_GameController *pads[2];	/* player 1 (with the keyboard), player 2 */
 static int enabled = -1;
 static GLuint prog, vao, vbo;
+static int multidraw;	/* batched draws as one glMultiDrawArrays (see batch_flush) */
 static GLint u_tex, u_mode, u_flags, u_alpha_ref, u_target, u_xmap, u_umap, u_xoff, u_fog, u_fog_col, u_ymap, u_xzoom;
 static GLint u_fog_col_ram, u_fog_density, u_fog_tab;
 static GLuint fog_tex;
@@ -731,18 +734,23 @@ static void vsync_apply(void)
 	   would slow the game down; plain VSync otherwise */
 	vsync_adaptive = 0;
 	vsync_on = 0;
+	char why[160] = "";
 	if (vsync_want && !fast)
 	{
 		vsync_adaptive = SDL_GL_SetSwapInterval(-1) == 0;
 		vsync_on = vsync_adaptive || SDL_GL_SetSwapInterval(1) == 0;
+		if (!vsync_on)
+			snprintf(why, sizeof(why), ", the driver refused it: %s", SDL_GetError());
 	}
+	else
+		snprintf(why, sizeof(why), fast ? ", unpaced run" : ", VSYNC OFF in the settings");
 	if (!vsync_on)
 		SDL_GL_SetSwapInterval(0);
 	SDL_DisplayMode m;
 	display_hz = win && SDL_GetWindowDisplayMode(win, &m) == 0 ? m.refresh_rate : 0;
 	if (win && SDL_GetCurrentDisplayMode(SDL_GetWindowDisplayIndex(win), &m) == 0 && m.refresh_rate)
 		display_hz = m.refresh_rate;
-	printf("video: vsync %s (display %d Hz)\n", vsync_on ? (vsync_adaptive ? "adaptive" : "on") : "off", display_hz);
+	printf("video: vsync %s (display %d Hz%s)\n", vsync_on ? (vsync_adaptive ? "adaptive" : "on") : "off", display_hz, why);
 }
 int video_vsync(void) { return vsync_want < 0 ? 1 : vsync_want; }
 /* the rate the frame clock runs at: 62 when a VSync'd display of about 60 Hz sets the pace */
@@ -935,6 +943,11 @@ int video_enabled(void)
 	vsync_apply();	/* frames are paced by the emulated V Blank; VSync only times the swap */
 	printf("video: %s / %s\n", glGetString(GL_RENDERER), glGetString(GL_VERSION));
 	{
+		const char *ver = (const char *)glGetString(GL_VERSION), *e = getenv("M1_MULTIDRAW");
+		multidraw = e ? atoi(e) != 0 : ver && strstr(ver, "Mesa") != 0;
+		printf("video: batched draws as %s\n", multidraw ? "glMultiDrawArrays" : "separate draws");
+	}
+	{
 		int dw, dh;
 		display_size(&dw, &dh);
 #ifdef _WIN32
@@ -987,9 +1000,12 @@ int video_enabled(void)
 /* a texture's pixels. A texture re-uploaded at the same size (animated textures, palette cycling:
    five a frame in Inferno's defeat, issue #11) gets new contents in its existing storage
    (glTexSubImage2D): re-creating the storage of a texture the previous frame may still be drawing
-   with can make a driver wait for the GPU */
+   with can make a driver wait for the GPU. Polygons waiting in the draw batch are drawn first
+   (state_invalidate): one of them may use the texture's old contents. */
+static void state_invalidate(void);
 unsigned gl_upload_texture(unsigned id, u32 w, u32 h, const u32 *rgba)
 {
+	state_invalidate();
 	enum { NSIZES = 1 << 16 };
 	static u32 *sizes;	/* per texture name: w << 16 | h of its storage */
 	if (!sizes)
@@ -1156,54 +1172,104 @@ static void draw_strip(const TaCtx *c, const TaPoly *p)
 	glFrontFace(GL_CCW);
 }
 
-static void set_state(const TaPoly *p, int list)
+/* Drawing state, as a value: each polygon's state is worked out first (state_for), then only
+   what differs from the state in force is sent to OpenGL (state_apply), and runs of polygons
+   with the same state go out as one glMultiDrawArrays. That draws exactly what one
+   glDrawArrays per polygon did, in the same order, with far fewer calls into the driver (on
+   the Steam Deck the calls cost about 4 ms per fight frame). */
+typedef struct
 {
+	GLenum depth_func;
+	int depth_mask;
+	int cull;				/* 0 off, else GL_FRONT / GL_BACK */
+	int blend;
+	GLenum bsrc, bdst;
+	int flags, fog, mode;	/* mode -1: untextured */
+	float alpha_ref, fog_col[3];
+	int stencil, stencil_ref;
+	unsigned tex;			/* textured: the texture and its sampling */
+	GLint filt, wrap_s, wrap_t;
+	float xmap[2], umap[2];
+	int scissor, sc[4];
+} PolyState;
+static PolyState st_cur;
+static int st_valid;		/* st_cur is what OpenGL has (0 after anything else touched it) */
+/* a batch goes out as one glMultiDrawArrays on Mesa (Linux, the Steam Deck), where it is one
+   call into the driver; NVIDIA's Windows driver is slower with it (fight frames 1.3 ms against
+   0.5 ms as separate draws), so elsewhere a batch is separate draws, still without the state
+   calls in between. M1_MULTIDRAW=0/1 overrides; set when the GL context is made (multidraw). */
+static GLint *b_first;
+static GLsizei *b_count;
+static u32 b_n, b_cap;
+
+static void batch_flush(void)
+{
+	if (b_n == 1 || !multidraw)
+		for (u32 i = 0; i < b_n; i++)
+			glDrawArrays(GL_TRIANGLE_STRIP, b_first[i], b_count[i]);
+	else if (b_n)
+		glMultiDrawArrays(GL_TRIANGLE_STRIP, b_first, b_count, (GLsizei)b_n);
+	b_n = 0;
+}
+static void batch_add(u32 first, u32 count)
+{
+	if (b_n == b_cap)
+	{
+		b_cap = b_cap ? b_cap * 2 : 1024;
+		b_first = realloc(b_first, b_cap * sizeof(*b_first));
+		b_count = realloc(b_count, b_cap * sizeof(*b_count));
+	}
+	b_first[b_n] = (GLint)first;
+	b_count[b_n++] = (GLsizei)count;
+}
+/* drawn polygons wait in the batch: anything that changes OpenGL state or a texture's
+   contents sends them first and makes the state cache start over */
+static void state_invalidate(void)
+{
+	batch_flush();
+	st_valid = 0;
+}
+
+static void state_for(const TaPoly *p, int list, PolyState *s)
+{
+	memset(s, 0, sizeof(*s));
 	const u32 isp = p->isp, tsp = p->tsp;
 	const int textured = (isp >> 25) & 1;
-	glDepthFunc(depth_func[(isp >> 29) & 7]);
-	glDepthMask(((isp >> 26) & 1) ? GL_FALSE : GL_TRUE);
+	s->depth_func = depth_func[(isp >> 29) & 7];
+	s->depth_mask = ((isp >> 26) & 1) ? 0 : 1;
 	/* ISP culling mode (28-27): 2 and 3 cull one winding (the game relies on it for polygons
 	   with vertices behind the camera); 1 (cull if small) is not modelled */
 	const int cull = (isp >> 27) & 3;
 	if (cull >= 2 && !p->sprite)
-	{
-		glEnable(GL_CULL_FACE);
-		glCullFace(cull == 2 ? GL_FRONT : GL_BACK);
-	}
-	else
-		glDisable(GL_CULL_FACE);
+		s->cull = cull == 2 ? GL_FRONT : GL_BACK;
 	if (list == 2)
 	{
-		glEnable(GL_BLEND);
-		glBlendFunc(blend_src[(tsp >> 29) & 7], blend_dst[(tsp >> 26) & 7]);
+		s->blend = 1;
+		s->bsrc = blend_src[(tsp >> 29) & 7];
+		s->bdst = blend_dst[(tsp >> 26) & 7];
 	}
-	else
-		glDisable(GL_BLEND);
-	int flags = ((tsp >> 20) & 1) | (((tsp >> 19) & 1) << 1) | (((isp >> 24) & 1) << 2);
-	glUniform1i(u_flags, flags);
-	glUniform1f(u_alpha_ref, list == 4 ? (float)(hw_reg(0x005f811c) & 255) : -1.0f);
-	glUniform1i(u_fog, (int)((tsp >> 22) & 3));
+	s->flags = ((tsp >> 20) & 1) | (((tsp >> 19) & 1) << 1) | (((isp >> 24) & 1) << 2);
+	s->alpha_ref = list == 4 ? (float)(hw_reg(0x005f811c) & 255) : -1.0f;
+	s->fog = (int)((tsp >> 22) & 3);
 	{
 		const u32 fc = hw_reg(0x005f80b4);	/* FOG_COL_VERT */
-		glUniform3f(u_fog_col, ((fc >> 16) & 255) / 255.0f, ((fc >> 8) & 255) / 255.0f, (fc & 255) / 255.0f);
+		s->fog_col[0] = ((fc >> 16) & 255) / 255.0f;
+		s->fog_col[1] = ((fc >> 8) & 255) / 255.0f;
+		s->fog_col[2] = (fc & 255) / 255.0f;
 	}
 	/* opaque and punch-through polygons mark whether modifier volumes shade them (stencil
 	   bit 7, from PCW bit 7) */
 	if (list != 2)
 	{
-		glEnable(GL_STENCIL_TEST);
-		glStencilMask(0x80);
-		glStencilFunc(GL_ALWAYS, p->shadow ? 0x80 : 0, 0xff);
-		glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+		s->stencil = 1;
+		s->stencil_ref = p->shadow ? 0x80 : 0;
 	}
-	else
-		glDisable(GL_STENCIL_TEST);
 	if (!textured)
 	{
-		glUniform1i(u_mode, -1);
+		s->mode = -1;
 		return;
 	}
-	glUniform1i(u_mode, (tsp >> 6) & 3);
+	s->mode = (tsp >> 6) & 3;
 	GLint filt = ((tsp >> 13) & 3) ? GL_LINEAR : GL_NEAREST;
 	/* text and other point-sampled 2D drawn above 640x480 would show each texel as a block: it
 	   gets the texture upscaled by Scale2x (tex.c tex_get_hi) and bilinear filtering, so the
@@ -1215,25 +1281,129 @@ static void set_state(const TaPoly *p, int list)
 	unsigned rep;
 	if ((rep = tex_get_rep(p->tcw, tsp)))
 	{
-		glBindTexture(GL_TEXTURE_2D, rep);	/* replacement art (tex.c) */
+		s->tex = rep;	/* replacement art (tex.c) */
 		filt = GL_LINEAR;
 	}
 	else if (smooth && tgt_w == 640 && vp_h > 600 && p->cls >= M1_2D_HUD && p->cls <= M1_2D_SCREEN)
 	{
-		glBindTexture(GL_TEXTURE_2D, tex_get_hi(p->tcw, tsp, &hi));
+		s->tex = tex_get_hi(p->tcw, tsp, &hi);
 		if (hi > 1)
 		{
 			filt = GL_LINEAR;
 			if (list == 4 && (hw_reg(0x005f811c) & 255) > 128)
-				glUniform1f(u_alpha_ref, 128.0f);
+				s->alpha_ref = 128.0f;
 		}
 	}
 	else
-		glBindTexture(GL_TEXTURE_2D, tex_get(p->tcw, tsp));
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filt);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filt);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, ((tsp >> 16) & 1) ? GL_CLAMP_TO_EDGE : ((tsp >> 18) & 1) ? GL_MIRRORED_REPEAT : GL_REPEAT);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, ((tsp >> 15) & 1) ? GL_CLAMP_TO_EDGE : ((tsp >> 17) & 1) ? GL_MIRRORED_REPEAT : GL_REPEAT);
+		s->tex = tex_get(p->tcw, tsp);
+	s->filt = filt;
+	s->wrap_s = ((tsp >> 16) & 1) ? GL_CLAMP_TO_EDGE : ((tsp >> 18) & 1) ? GL_MIRRORED_REPEAT : GL_REPEAT;
+	s->wrap_t = ((tsp >> 15) & 1) ? GL_CLAMP_TO_EDGE : ((tsp >> 17) & 1) ? GL_MIRRORED_REPEAT : GL_REPEAT;
+}
+
+/* make OpenGL's state s, sending only what differs from st_cur (everything when !st_valid);
+   the batch must be empty; view: also the x / u mapping and the scissor box */
+static void state_apply(const PolyState *s, int view)
+{
+	const PolyState *c = &st_cur;
+	const int all = !st_valid;
+	if (all || s->depth_func != c->depth_func)
+		glDepthFunc(s->depth_func);
+	if (all || s->depth_mask != c->depth_mask)
+		glDepthMask(s->depth_mask ? GL_TRUE : GL_FALSE);
+	if (all || s->cull != c->cull)
+	{
+		if (s->cull)
+		{
+			glEnable(GL_CULL_FACE);
+			glCullFace((GLenum)s->cull);
+		}
+		else
+			glDisable(GL_CULL_FACE);
+	}
+	if (all || s->blend != c->blend || s->bsrc != c->bsrc || s->bdst != c->bdst)
+	{
+		if (s->blend)
+		{
+			glEnable(GL_BLEND);
+			glBlendFunc(s->bsrc, s->bdst);
+		}
+		else
+			glDisable(GL_BLEND);
+	}
+	if (all || s->flags != c->flags)
+		glUniform1i(u_flags, s->flags);
+	if (all || s->alpha_ref != c->alpha_ref)
+		glUniform1f(u_alpha_ref, s->alpha_ref);
+	if (all || s->fog != c->fog)
+		glUniform1i(u_fog, s->fog);
+	if (all || memcmp(s->fog_col, c->fog_col, sizeof(s->fog_col)))
+		glUniform3f(u_fog_col, s->fog_col[0], s->fog_col[1], s->fog_col[2]);
+	if (all || s->stencil != c->stencil || s->stencil_ref != c->stencil_ref)
+	{
+		if (s->stencil)
+		{
+			glEnable(GL_STENCIL_TEST);
+			glStencilMask(0x80);
+			glStencilFunc(GL_ALWAYS, s->stencil_ref, 0xff);
+			glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+		}
+		else
+			glDisable(GL_STENCIL_TEST);
+	}
+	if (all || s->mode != c->mode)
+		glUniform1i(u_mode, s->mode);
+	/* a texture keeps its own sampling settings: all of them when the texture changes */
+	if (s->tex && (all || s->tex != c->tex))
+	{
+		glBindTexture(GL_TEXTURE_2D, s->tex);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, s->filt);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, s->filt);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, s->wrap_s);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, s->wrap_t);
+	}
+	else if (s->tex)
+	{
+		if (s->filt != c->filt)
+		{
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, s->filt);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, s->filt);
+		}
+		if (s->wrap_s != c->wrap_s)
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, s->wrap_s);
+		if (s->wrap_t != c->wrap_t)
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, s->wrap_t);
+	}
+	if (view && (all || memcmp(s->xmap, c->xmap, sizeof(s->xmap))))
+		glUniform2f(u_xmap, s->xmap[0], s->xmap[1]);
+	if (view && (all || memcmp(s->umap, c->umap, sizeof(s->umap))))
+		glUniform2f(u_umap, s->umap[0], s->umap[1]);
+	if (view && (all || s->scissor != c->scissor || memcmp(s->sc, c->sc, sizeof(s->sc))))
+	{
+		if (s->scissor)
+		{
+			glEnable(GL_SCISSOR_TEST);
+			glScissor(s->sc[0], s->sc[1], s->sc[2], s->sc[3]);
+		}
+		else
+			glDisable(GL_SCISSOR_TEST);
+	}
+	/* an untextured polygon leaves the bound texture and its settings as they were */
+	const PolyState prev = st_cur;
+	st_cur = *s;
+	if (!s->tex && !all)
+		st_cur.tex = prev.tex, st_cur.filt = prev.filt, st_cur.wrap_s = prev.wrap_s, st_cur.wrap_t = prev.wrap_t;
+	st_valid = 1;
+}
+
+/* one polygon's state, all of it, outside the batched drawing (side_fill) */
+static void set_state(const TaPoly *p, int list)
+{
+	PolyState s;
+	state_for(p, list, &s);
+	st_valid = 0;
+	state_apply(&s, 0);
+	st_valid = 0;
 }
 
 /* background plane colour: ISP_BACKGND_T (005F808C) points into the parameter buffer at
@@ -2322,10 +2492,14 @@ static void draw_lists(TaCtx *c)
 	(void)ntr;
 	const int replaced = side_fill(c, idx, n);	/* 16:9 sides of a 4:3 background */
 	int shaded = 0;
+	/* polygons with the same state as the one before join its batch (state_apply, batch_flush) */
+	glUniform1f(u_xoff, 0);
+	st_valid = 0;
 	for (u32 j = 0; j < n; j++)
 		{
 			if (j == first_tr && !shaded)
 			{
+				state_invalidate();
 				shadow_pass(c);
 				shaded = 1;
 			}
@@ -2351,7 +2525,8 @@ static void draw_lists(TaCtx *c)
 				only = getenv("M1_ONLYPOLY") ? atoi(getenv("M1_ONLYPOLY")) : -1;
 			if (only >= 0 && (int)idx[j] != only)
 				continue;
-			set_state(p, p->list);
+			PolyState s;
+			state_for(p, p->list, &s);
 			{
 				/* M1_FLATPOLY=a:b (debugging): polygons a..b without their texture */
 				static int fa = -2, fb = -1;
@@ -2364,24 +2539,24 @@ static void draw_lists(TaCtx *c)
 				if ((int)idx[j] >= fa && (int)idx[j] <= fb)
 				{
 					if (!getenv("M1_FLATKEEPTEX"))
-						glUniform1i(u_mode, -1);
-					glUniform1f(u_alpha_ref, -1.0f);
+						s.mode = -1;
+					s.alpha_ref = -1.0f;
 				}
 			}
 			float xa, xk, ua, uk;
 			wide_map(c, p, &xa, &xk, &ua, &uk);
 			if (replaced == 2 && bg_layer[idx[j]])
 				xa = 320, xk = 1 / view_zoom, ua = 0, uk = 1;	/* stretched background: the picture's full width */
-			glUniform2f(u_xmap, xa, xk);
-			glUniform2f(u_umap, ua, uk);
+			s.xmap[0] = xa, s.xmap[1] = xk;
+			s.umap[0] = ua, s.umap[1] = uk;
 			if (p->clip == 2)
 			{
 				const float cx0 = 320 + (xa + (p->clip_rect[0] - xa) * xk - 320) * view_zoom,
 							cx1 = 320 + (xa + (p->clip_rect[2] - xa) * xk - 320) * view_zoom;
 				const int x0 = vp_x + (int)(cx0 * vp_w / tgt_w), x1 = vp_x + (int)(cx1 * vp_w / tgt_w);
 				const int y0 = vp_y + vp_h - p->clip_rect[3] * vp_h / tgt_h, y1 = vp_y + vp_h - p->clip_rect[1] * vp_h / tgt_h;
-				glEnable(GL_SCISSOR_TEST);
-				glScissor(x0, y0, x1 - x0, y1 - y0);
+				s.scissor = 1;
+				s.sc[0] = x0, s.sc[1] = y0, s.sc[2] = x1 - x0, s.sc[3] = y1 - y0;
 			}
 			else if (bg_tiled_picture && replaced != 2 && p->cls == M1_2D_TILED)
 			{
@@ -2390,17 +2565,30 @@ static void draw_lists(TaCtx *c)
 				const float cx0 = 320 + (xa + (0 - xa) * xk - 320) * view_zoom,
 							cx1 = 320 + (xa + (640 - xa) * xk - 320) * view_zoom;
 				const int x0 = vp_x + (int)(cx0 * vp_w / tgt_w), x1 = vp_x + (int)(cx1 * vp_w / tgt_w);
-				glEnable(GL_SCISSOR_TEST);
-				glScissor(x0, vp_y, x1 - x0, vp_h);
+				s.scissor = 1;
+				s.sc[0] = x0, s.sc[1] = vp_y, s.sc[2] = x1 - x0, s.sc[3] = vp_h;
 			}
+			/* state_for may have decoded a texture: gl_upload_texture sent the batch first */
+			if (!st_valid || memcmp(&s, &st_cur, sizeof(s)))
+			{
+				batch_flush();
+				state_apply(&s, 1);
+			}
+			int bad = 0;
+			for (u32 k = 0; k < p->count && !bad; k++)
+				bad = vert_bad(&c->v[p->first + k]);
+			if (!bad)
+				batch_add(p->first, p->count);
 			else
-				glDisable(GL_SCISSOR_TEST);
-			glUniform1f(u_xoff, 0);
-			draw_strip(c, p);
+			{
+				batch_flush();
+				draw_strip(c, p);	/* without the triangles that have a bad vertex */
+			}
 			if (p->cls == M1_2D_TILED && xk != 1 && tiled_period > 0 && !bg_tiled_picture && !(replaced == 2 && bg_layer[idx[j]]))
 			{
 				/* copies one period or more to either side fill 16:9 (virtual x -249..889); a 4:3
 				   layer's copies only where the layer itself draws nothing, so nothing is drawn twice */
+				batch_flush();
 				float x0 = 1e30f, x1 = -1e30f, y0 = 1e30f;
 				for (u32 k = 0; k < p->count; k++)
 				{
@@ -2409,16 +2597,21 @@ static void draw_lists(TaCtx *c)
 				}
 				const int r = tiled_row_of(y0);
 				const float rx0 = r >= 0 ? tiled_row[r].x0 : tiled_x0, rx1 = r >= 0 ? tiled_row[r].x1 : tiled_x1;
+				int moved = 0;
 				for (int m = -4; m <= 4; m++)
 				{
 					const float d = m * tiled_period;
 					if (m == 0 || x1 + d < -250 || x0 + d > 890 || (x1 + d > rx0 + 1 && x0 + d < rx1 - 1))
 						continue;
 					glUniform1f(u_xoff, d * xk);
+					moved = 1;
 					draw_strip(c, p);
 				}
+				if (moved)
+					glUniform1f(u_xoff, 0);
 			}
 		}
+	batch_flush();
 	if (!shaded)
 		shadow_pass(c);
 	glDisable(GL_BLEND);

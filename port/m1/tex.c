@@ -83,6 +83,18 @@ static u32 yuv(int y, int u, int v)
 				clamp255(y + (int)(1.71875f * u)), 255);
 }
 
+/* twiddle() interleaves the bits of x and y, each to places that depend only on w and h, so
+   twiddle(x, y) = twiddle(x, 0) | twiddle(0, y): one table per axis per texture instead of a
+   bit loop per texel (a fight's first frame decodes about 30 textures at once) */
+static u32 tw_x[1024], tw_y[1024];
+static void twiddle_tables(u32 w, u32 h)
+{
+	for (u32 x = 0; x < w && x < 1024; x++)
+		tw_x[x] = twiddle(x, 0, w, h);
+	for (u32 y = 0; y < h && y < 1024; y++)
+		tw_y[y] = twiddle(0, y, w, h);
+}
+
 /* decode into out (w x h RGBA8); returns the number of VRAM bytes the texture spans */
 static u32 decode(u32 tcw, u32 w, u32 h, u32 *out)
 {
@@ -103,10 +115,11 @@ static u32 decode(u32 tcw, u32 w, u32 h, u32 *out)
 	{
 		const u8 *book = vram + (addr & (VRAM_SIZE - 1));
 		addr += 2048 + (mip ? vq_mip[lw] : 0);
+		twiddle_tables(w >> 1, h >> 1);
 		for (u32 y = 0; y < h; y++)
 			for (u32 x = 0; x < w; x++)
 			{
-				const u32 blk = twiddle(x >> 1, y >> 1, w >> 1, h >> 1);
+				const u32 blk = tw_x[x >> 1] | tw_y[y >> 1];
 				const u8 idx = vram[(addr + blk) & (VRAM_SIZE - 1)];
 				const u32 sub = (y & 1) | (x & 1) << 1;
 				u16 t;
@@ -121,23 +134,33 @@ static u32 decode(u32 tcw, u32 w, u32 h, u32 *out)
 	u32 stride = w;
 	if (!twiddled && ((tcw >> 25) & 1))
 		stride = (hw_reg(0x005f80e4) & 31) * 32;	/* TEXT_CONTROL stride */
+	if (twiddled)
+		twiddle_tables(w, h);
+	/* the palette entries this texture reads, converted once */
+	static u32 pal_rgba[256];
+	if (fmt == 5)
+		for (u32 i = 0; i < 16; i++)
+			pal_rgba[i] = palette((((tcw >> 21) & 63) << 4) | i);
+	else if (fmt == 6)
+		for (u32 i = 0; i < 256; i++)
+			pal_rgba[i] = palette((((tcw >> 25) & 3) << 8) | i);
 	for (u32 y = 0; y < h; y++)
 		for (u32 x = 0; x < w; x++)
 		{
-			const u32 t = twiddled ? twiddle(x, y, w, h) : y * stride + x;
+			const u32 t = twiddled ? tw_x[x] | tw_y[y] : y * stride + x;
 			u32 c;
 			if (fmt == 5)
 			{
 				const u8 b = vram[(addr + t / 2) & (VRAM_SIZE - 1)];
-				c = palette((((tcw >> 21) & 63) << 4) | ((t & 1) ? b >> 4 : b & 15));
+				c = pal_rgba[(t & 1) ? b >> 4 : b & 15];
 			}
 			else if (fmt == 6)
-				c = palette((((tcw >> 25) & 3) << 8) | vram[(addr + t) & (VRAM_SIZE - 1)]);
+				c = pal_rgba[vram[(addr + t) & (VRAM_SIZE - 1)]];
 			else if (fmt == 3)
 			{
 				/* YUV422: pairs of texels share U and V (twiddled pairs run along y) */
-				const u32 t0 = twiddled ? twiddle(x & ~1u, y, w, h) : y * stride + (x & ~1u);
-				const u32 t1 = twiddled ? twiddle(x | 1u, y, w, h) : y * stride + (x | 1u);
+				const u32 t0 = twiddled ? tw_x[x & ~1u] | tw_y[y] : y * stride + (x & ~1u);
+				const u32 t1 = twiddled ? tw_x[x | 1u] | tw_y[y] : y * stride + (x | 1u);
 				u16 a, b;
 				memcpy(&a, vram + ((addr + t0 * 2) & (VRAM_SIZE - 1)), 2);
 				memcpy(&b, vram + ((addr + t1 * 2) & (VRAM_SIZE - 1)), 2);

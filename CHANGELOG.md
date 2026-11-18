@@ -2,6 +2,28 @@
 
 All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); see the README.
 
+## 1.2.2 (unreleased)
+
+### Changed
+- **No more slowdown when Inferno explodes** (enrique363/voldorium#11, enrique363/voldorium#19):
+  for about a second after Inferno's last round, the game rewrites about 5 textures every frame.
+  Decoding them took about 9 ms per frame even on the test PC (Ryzen 7 7700), which on slower
+  CPUs pushed frames past 16.7 ms. Texture decoding is now much faster: that scene takes about
+  1.5 ms per frame (496 ms of texture work over the scene down to 46 ms). Same pictures, byte
+  for byte.
+- **Shorter hitch when a fight starts** (enrique363/voldorium#19): the roughly 30 new textures
+  on a fight's first frame now decode in 7 ms instead of 31 ms on the test PC (on a Steam Deck
+  the hitch was about 100 ms).
+- **Fewer calls into the graphics driver** (enrique363/voldorium#19): a fight frame used to send
+  each of its ~3,800 polygons with its full drawing state. Now only what changes is sent, and
+  runs of polygons with the same state are grouped (about 220 groups per fight frame). On Mesa
+  (Linux, Steam Deck) each group is a single `glMultiDrawArrays`; elsewhere a group is still
+  separate draws, as NVIDIA's Windows driver is slower with it (`M1_MULTIDRAW=0/1` overrides).
+  Drawing a fight frame on the test PC: 1.02 ms down to 0.59 ms. Same pictures, byte for byte
+  (79 screenshots across Arcade, the Mission Battle map and the Art Gallery).
+- **The log says why VSync is off**: `video: vsync off` now adds whether VSYNC is OFF in the
+  settings or the graphics driver refused it, with the driver's reason.
+
 ## 1.2.1 (2026-11-17)
 
 ### Changed
