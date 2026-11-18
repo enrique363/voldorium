@@ -298,6 +298,21 @@ static void pace_frame(void)
 		clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &next, 0);
 }
 #endif
+static double host_ms(void)
+{
+#ifdef _WIN32
+	static LARGE_INTEGER freq;
+	if (!freq.QuadPart)
+		QueryPerformanceFrequency(&freq);
+	LARGE_INTEGER now;
+	QueryPerformanceCounter(&now);
+	return (double)now.QuadPart * 1000.0 / (double)freq.QuadPart;
+#else
+	struct timespec now;
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	return now.tv_sec * 1000.0 + now.tv_nsec * 1e-6;
+#endif
+}
 
 static void vblank_in(void)
 {
@@ -332,23 +347,39 @@ static void vblank_in(void)
 	video_record_vblank();	/* M1_RECORD (render.c): one video frame per V Blank */
 	extern int m1_resim, m1_net_active;
 	{
-		/* The memory card save screen (game mode 53, on the way back to the main menu) runs 8
-		   times as fast: 7 frames in 8 are neither shown, paced nor heard (as a GGPO
-		   re-simulation). It held 2.5 s on screen: one 128-byte write to the card per frame,
-		   then a wait. The game runs exactly the same frames. Not in online matches (netplay.c
-		   owns m1_resim there) or with M1_SAVEFAST=0.
+		/* The memory card save screen (game mode 53, on the way back to the main menu) runs up
+		   to 8 times as fast: frames that are neither shown, paced nor heard (as a GGPO
+		   re-simulation) run between shown ones. It held 2.5 s on screen: one 128-byte write to
+		   the card per frame, then a wait. The game runs exactly the same frames. Not in online
+		   matches (netplay.c owns m1_resim there) or with M1_SAVEFAST=0.
+		   After each shown frame, unshown ones run for up to 9 ms (at most 7), so the screen
+		   keeps 60 FPS: a fixed 7 in 8 took 41 ms per shown frame on a Steam Deck, and the save
+		   screen moved at 24 FPS (issue #19). A fast PC still runs 8 to 1. The 9 ms start at
+		   the first unshown frame, so a shown frame's wait for VSync does not count.
 		   Mode 53 first shows the unlock announcements (CONGRATULATIONS!, a picture and a
 		   streamed fanfare; 0x8c036ac0): those run at normal speed and are heard. The game
 		   shows one while 0x8c25bad4 (what was unlocked) is not -1 and step 0x8c24a6d4 is 0xc;
 		   the save follows at steps 6 to 10 (issue #10: the announcement flashed by and its
 		   music came out one frame in eight). */
 		static int on = -1;
-		static u32 n;
+		static u32 n;		/* unshown frames since the last shown one */
 		if (on < 0)
 			on = !getenv("M1_NET") && !(getenv("M1_SAVEFAST") && !atoi(getenv("M1_SAVEFAST")));
 		const int announcing = rd32(0x8c25bad4) != 0xffffffffu && rd32(0x8c24a6d4) == 0xc;
 		if (on && m == 53 && !announcing && !m1_net_active)
-			m1_resim = (++n & 7) != 0;
+		{
+			/* M1_FAST (tests): the fixed 7 in 8, so runs stay the same from one to the next */
+			static int fixed = -1;
+			if (fixed < 0)
+				fixed = getenv("M1_FAST") != 0;
+			static double t0;	/* when this run of unshown frames began */
+			const double now = fixed ? 0 : host_ms();
+			if (n == 0)
+				t0 = now;
+			const int more = n < 7 && now - t0 < 9.0;
+			m1_resim = more;
+			n = more ? n + 1 : 0;
+		}
 		else if (n)
 			m1_resim = 0, n = 0;
 	}

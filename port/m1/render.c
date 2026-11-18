@@ -52,7 +52,6 @@
 	X(PFNGLGETSHADERIVPROC, glGetShaderiv) \
 	X(PFNGLGETUNIFORMLOCATIONPROC, glGetUniformLocation) \
 	X(PFNGLLINKPROGRAMPROC, glLinkProgram) \
-	X(PFNGLMULTIDRAWARRAYSPROC, glMultiDrawArrays) \
 	X(PFNGLRENDERBUFFERSTORAGEPROC, glRenderbufferStorage) \
 	X(PFNGLSHADERSOURCEPROC, glShaderSource) \
 	X(PFNGLUNIFORM1FPROC, glUniform1f) \
@@ -88,7 +87,6 @@ GL_FUNCS(X)
 #define glGetShaderiv p_glGetShaderiv
 #define glGetUniformLocation p_glGetUniformLocation
 #define glLinkProgram p_glLinkProgram
-#define glMultiDrawArrays p_glMultiDrawArrays
 #define glRenderbufferStorage p_glRenderbufferStorage
 #define glShaderSource p_glShaderSource
 #define glUniform1f p_glUniform1f
@@ -136,7 +134,6 @@ static SDL_GLContext glc;
 static SDL_GameController *pads[2];	/* player 1 (with the keyboard), player 2 */
 static int enabled = -1;
 static GLuint prog, vao, vbo;
-static int multidraw;	/* batched draws as one glMultiDrawArrays (see batch_flush) */
 static GLint u_tex, u_mode, u_flags, u_alpha_ref, u_target, u_xmap, u_umap, u_xoff, u_fog, u_fog_col, u_ymap, u_xzoom;
 static GLint u_fog_col_ram, u_fog_density, u_fog_tab;
 static GLuint fog_tex;
@@ -943,11 +940,6 @@ int video_enabled(void)
 	vsync_apply();	/* frames are paced by the emulated V Blank; VSync only times the swap */
 	printf("video: %s / %s\n", glGetString(GL_RENDERER), glGetString(GL_VERSION));
 	{
-		const char *ver = (const char *)glGetString(GL_VERSION), *e = getenv("M1_MULTIDRAW");
-		multidraw = e ? atoi(e) != 0 : ver && strstr(ver, "Mesa") != 0;
-		printf("video: batched draws as %s\n", multidraw ? "glMultiDrawArrays" : "separate draws");
-	}
-	{
 		int dw, dh;
 		display_size(&dw, &dh);
 #ifdef _WIN32
@@ -1173,10 +1165,11 @@ static void draw_strip(const TaCtx *c, const TaPoly *p)
 }
 
 /* Drawing state, as a value: each polygon's state is worked out first (state_for), then only
-   what differs from the state in force is sent to OpenGL (state_apply), and runs of polygons
-   with the same state go out as one glMultiDrawArrays. That draws exactly what one
-   glDrawArrays per polygon did, in the same order, with far fewer calls into the driver (on
-   the Steam Deck the calls cost about 4 ms per fight frame). */
+   what differs from the state in force is sent to OpenGL (state_apply). The same draws in the
+   same order, without the ~20 state calls per polygon that cost the Steam Deck about 4 ms per
+   fight frame (issue #19: frames over 17.5 ms went from 34% to 3%). Draws wait in a batch until
+   the state changes; one glMultiDrawArrays per batch made no difference on the Deck and was
+   slower on NVIDIA's Windows driver, so a batch is separate glDrawArrays. */
 typedef struct
 {
 	GLenum depth_func;
@@ -1194,21 +1187,14 @@ typedef struct
 } PolyState;
 static PolyState st_cur;
 static int st_valid;		/* st_cur is what OpenGL has (0 after anything else touched it) */
-/* a batch goes out as one glMultiDrawArrays on Mesa (Linux, the Steam Deck), where it is one
-   call into the driver; NVIDIA's Windows driver is slower with it (fight frames 1.3 ms against
-   0.5 ms as separate draws), so elsewhere a batch is separate draws, still without the state
-   calls in between. M1_MULTIDRAW=0/1 overrides; set when the GL context is made (multidraw). */
 static GLint *b_first;
 static GLsizei *b_count;
 static u32 b_n, b_cap;
 
 static void batch_flush(void)
 {
-	if (b_n == 1 || !multidraw)
-		for (u32 i = 0; i < b_n; i++)
-			glDrawArrays(GL_TRIANGLE_STRIP, b_first[i], b_count[i]);
-	else if (b_n)
-		glMultiDrawArrays(GL_TRIANGLE_STRIP, b_first, b_count, (GLsizei)b_n);
+	for (u32 i = 0; i < b_n; i++)
+		glDrawArrays(GL_TRIANGLE_STRIP, b_first[i], b_count[i]);
 	b_n = 0;
 }
 static void batch_add(u32 first, u32 count)

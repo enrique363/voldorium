@@ -14,13 +14,18 @@ All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); 
 - **Shorter hitch when a fight starts** (enrique363/voldorium#19): the roughly 30 new textures
   on a fight's first frame now decode in 7 ms instead of 31 ms on the test PC (on a Steam Deck
   the hitch was about 100 ms).
-- **Fewer calls into the graphics driver** (enrique363/voldorium#19): a fight frame used to send
-  each of its ~3,800 polygons with its full drawing state. Now only what changes is sent, and
-  runs of polygons with the same state are grouped (about 220 groups per fight frame). On Mesa
-  (Linux, Steam Deck) each group is a single `glMultiDrawArrays`; elsewhere a group is still
-  separate draws, as NVIDIA's Windows driver is slower with it (`M1_MULTIDRAW=0/1` overrides).
-  Drawing a fight frame on the test PC: 1.02 ms down to 0.59 ms. Same pictures, byte for byte
-  (79 screenshots across Arcade, the Mission Battle map and the Art Gallery).
+- **Steam Deck fights hold 60 FPS** (enrique363/voldorium#19): a fight frame used to send each
+  of its ~3,800 polygons to the graphics driver with its full drawing state, about 20 calls
+  each. Now only what changes is sent (about 220 state changes per fight frame). On a Steam Deck
+  LCD, fight frames over 17.5 ms went from 34% to 3%, so fights now lock to 60 FPS instead of
+  settling at about 58. Drawing a fight frame on the test PC: 1.02 ms down to 0.59 ms. Same
+  pictures, byte for byte (79 screenshots across Arcade, the Mission Battle map and the Art
+  Gallery).
+- **Smooth memory card save screen** (enrique363/voldorium#19): the save screen runs faster
+  than the original by running unshown frames between shown ones. It ran a fixed 8 frames per
+  shown frame, which on a Steam Deck took 41 ms each, so the screen moved at 24 FPS. Now each
+  shown frame runs only as many as fit in 9 ms: still 60 FPS on screen, still faster than the
+  original's 2.5 s, and exactly the same game frames.
 - **The log says why VSync is off**: `video: vsync off` now adds whether VSYNC is OFF in the
   settings or the graphics driver refused it, with the driver's reason.
 
