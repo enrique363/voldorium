@@ -1194,8 +1194,10 @@ static GLint *b_first;
 static GLsizei *b_count;
 static u32 b_n, b_cap;
 
+static u32 gp_flush[6];
 static void batch_flush(void)
 {
+	gp_flush[0]++;
 	for (u32 i = 0; i < b_n; i++)
 		glDrawArrays(GL_TRIANGLE_STRIP, b_first[i], b_count[i]);
 	b_n = 0;
@@ -2425,8 +2427,29 @@ static void fog_table_update(void)
 	glUniform1f(u_fog_density, (float)((fd >> 8) & 255) / 128.0f * ldexpf(1.0f, (int)(s8)(fd & 255)));
 }
 
+/* M1_GPUPROF=1 (diagnosis, issue #19): each frame drawn in over 4 ms, split into phases timed
+   with glFinish (the GPU's work included): setup (vertex upload), opaque and punch-through (with
+   texture decodes and uploads), shadows (modifier volumes), translucent, rest (the picture to the
+   window, overlays, swap). The glFinish calls slow drawing down: for measuring only. */
+static int gp_on = -1;
+static double gp_ms[6];
+static u32 gp_phase;
+static u64 gp_t;
+static void gp_mark(u32 next)
+{
+	if (gp_on < 0)
+		gp_on = getenv("M1_GPUPROF") != 0;
+	if (!gp_on)
+		return;
+	glFinish();
+	const u64 t = SDL_GetPerformanceCounter();
+	if (gp_t)
+		gp_ms[gp_phase] += (double)(t - gp_t) * 1000.0 / (double)SDL_GetPerformanceFrequency();
+	gp_t = t, gp_phase = next;
+}
 static void draw_lists(TaCtx *c)
 {
+	gp_mark(0);
 	fog_table_update();
 	glEnable(GL_DEPTH_TEST);
 	glDisable(GL_CULL_FACE);
@@ -2490,11 +2513,15 @@ static void draw_lists(TaCtx *c)
 	st_valid = 0;
 	for (u32 j = 0; j < n; j++)
 		{
+			if (j == 0)
+				batch_flush(), gp_mark(1);
 			if (j == first_tr && !shaded)
 			{
 				state_invalidate();
+				batch_flush(), gp_mark(2);
 				shadow_pass(c);
 				shaded = 1;
+				gp_mark(3);
 			}
 			const TaPoly *p = &c->p[idx[j]];
 			if (p->count < 3 || (replaced == 1 && bg_layer[idx[j]]))
@@ -2606,7 +2633,8 @@ static void draw_lists(TaCtx *c)
 		}
 	batch_flush();
 	if (!shaded)
-		shadow_pass(c);
+		gp_mark(2), shadow_pass(c);
+	gp_mark(4);
 	glDisable(GL_BLEND);
 	glDisable(GL_SCISSOR_TEST);
 	glDisable(GL_STENCIL_TEST);
@@ -3024,6 +3052,17 @@ void render_frame(TaCtx *c)
 		return;	/* GGPO re-simulation (netplay.c): not shown */
 	const u64 perf_t0 = SDL_GetPerformanceCounter();
 	render_frame_draw(c);
+	gp_mark(5);
+	if (gp_on > 0)
+	{
+		double t = 0;
+		for (int i = 0; i < 5; i++)
+			t += gp_ms[i];
+		if (t > 4)
+			printf("gpuprof render %llu mode %u: setup %.2f opaque %.2f shadows %.2f translucent %.2f rest %.2f ms, %u polys %u volumes, flushes %u\n",
+				   (unsigned long long)rendered, rd32(0x8c24a584), gp_ms[0], gp_ms[1], gp_ms[2], gp_ms[3], gp_ms[4], c ? c->np : 0, c ? c->nmv : 0, gp_flush[0]);
+		memset(gp_ms, 0, sizeof(gp_ms)), gp_flush[0] = 0, gp_t = 0;
+	}
 	perf_report(perf_t0, SDL_GetPerformanceCounter(), c);
 }
 
