@@ -9,8 +9,11 @@ All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); 
   for about a second after Inferno's last round, the game rewrites about 5 textures every frame.
   Decoding them took about 9 ms per frame even on the test PC (Ryzen 7 7700), which on slower
   CPUs pushed frames past 16.7 ms. Texture decoding is now much faster: that scene takes about
-  1.5 ms per frame (496 ms of texture work over the scene down to 46 ms). Same pictures, byte
-  for byte.
+  1.5 ms per frame (496 ms of texture work over the scene down to 46 ms). On Linux and the Steam
+  Deck the scene also had a second, bigger cost: each rewritten texture was written into the
+  texture already in use, and Mesa waited for the GPU to finish drawing with it first. Five
+  waits a frame meant 43 to 62 ms of drawing per frame, about 15 FPS for a second. A rewritten
+  texture now gets a fresh texture instead. Same pictures, byte for byte.
 - **Shorter hitch when a fight starts** (enrique363/voldorium#19): the roughly 30 new textures
   on a fight's first frame now decode in 7 ms instead of 31 ms on the test PC (on a Steam Deck
   the hitch was about 100 ms).
@@ -28,6 +31,15 @@ All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); 
   original's 2.5 s, and exactly the same game frames.
 - **The log says why VSync is off**: `video: vsync off` now adds whether VSYNC is OFF in the
   settings or the graphics driver refused it, with the driver's reason.
+- **The mouse cursor hides** (enrique363/voldorium#21) after 2 seconds without moving, in a
+  window and in full screen. Moving the mouse shows it again.
+
+### Fixed
+- **Mission Battle objective box with HUD EDGES or MIDDLE** (enrique363/voldorium#21): a one-line
+  objective ("Defeat both enemies!") is a shorter box than a two-line one, too short to be kept
+  together as one window, so its ends went to the screen sides and its right half was drawn as a
+  sliver across the text. Boxes across the middle of the screen now count as a window from a
+  lower height. Two-line boxes and the rest of the HUD are unchanged.
 
 ## 1.2.1 (2026-11-17)
 

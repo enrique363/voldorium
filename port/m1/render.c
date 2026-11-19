@@ -989,31 +989,22 @@ int video_enabled(void)
 	return enabled;
 }
 
-/* a texture's pixels. A texture re-uploaded at the same size (animated textures, palette cycling:
-   five a frame in Inferno's defeat, issue #11) gets new contents in its existing storage
-   (glTexSubImage2D): re-creating the storage of a texture the previous frame may still be drawing
-   with can make a driver wait for the GPU. Polygons waiting in the draw batch are drawn first
-   (state_invalidate): one of them may use the texture's old contents. */
+/* a texture's pixels; returns its texture name. A texture re-uploaded (animated textures, palette
+   cycling: five a frame in Inferno's defeat, issue #11) gets a new texture and the old one is
+   deleted, which the driver frees once the GPU is done with it. Writing into the old one
+   (glTexSubImage2D) made Mesa wait for the GPU to finish every draw already sent with it: five
+   waits a frame, 43 to 62 ms of drawing per frame on a Steam Deck (issue #19). Polygons waiting
+   in the draw batch are drawn first (state_invalidate): one of them may use the old contents, and
+   a new texture can get the old one's name back. */
 static void state_invalidate(void);
 unsigned gl_upload_texture(unsigned id, u32 w, u32 h, const u32 *rgba)
 {
 	state_invalidate();
-	enum { NSIZES = 1 << 16 };
-	static u32 *sizes;	/* per texture name: w << 16 | h of its storage */
-	if (!sizes)
-		sizes = calloc(NSIZES, sizeof(*sizes));
-	if (!id)
-		glGenTextures(1, &id);
+	if (id)
+		glDeleteTextures(1, &id);
+	glGenTextures(1, &id);
 	glBindTexture(GL_TEXTURE_2D, id);
-	const u32 key = w << 16 | h;
-	if (id < NSIZES && sizes && sizes[id] == key)
-		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, (GLsizei)w, (GLsizei)h, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
-	else
-	{
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, (GLsizei)w, (GLsizei)h, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
-		if (id < NSIZES && sizes)
-			sizes[id] = key;
-	}
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, (GLsizei)w, (GLsizei)h, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
 	return id;
 }
 
@@ -1069,11 +1060,21 @@ void video_poll(void)
 		load_keymap();
 		keys_loaded = 1;
 	}
+	/* the mouse cursor hides after 2 s without moving, in a window and full screen (issue #21);
+	   the game has no use for it */
+	static Uint32 moved;
+	static int shown = 1;
 	SDL_Event e;
 	while (SDL_PollEvent(&e))
 	{
 		if (e.type == SDL_QUIT)
 			m1_stop("window closed");
+		if (e.type == SDL_MOUSEMOTION)
+		{
+			moved = SDL_GetTicks();
+			if (!shown)
+				SDL_ShowCursor(SDL_ENABLE), shown = 1;
+		}
 		if (e.type == SDL_KEYDOWN && !e.key.repeat)
 		{
 			const SDL_Keycode k = e.key.keysym.sym;
@@ -1100,6 +1101,8 @@ void video_poll(void)
 		if (e.type == SDL_CONTROLLERDEVICEREMOVED)
 			pad_removed(e.cdevice.which);
 	}
+	if (shown && SDL_GetTicks() - moved > 2000)
+		SDL_ShowCursor(SDL_DISABLE), shown = 0;
 	const u8 *k = SDL_GetKeyboardState(0);
 	u32 b = 0;
 	for (unsigned i = 0; i < sizeof(keymap) / sizeof(keymap[0]); i++)
@@ -1559,7 +1562,11 @@ static void fight_panels(const TaCtx *c)
 			z0 = t->z < z0 ? t->z : z0;
 			z1 = t->z > z1 ? t->z : z1;
 		}
-		if (!is_overlay(z0, z1) || x1 - x0 < 96 || y1 - y0 < 40 || (x0 <= 1 && x1 >= 639))
+		/* a window across the centre counts from 24 high: the mission battle's objective box is
+		   52 high for two lines but about 30 for one, and below 40 its pieces went to the centre
+		   and both sides in EDGES and MIDDLE (issue #21) */
+		const int centred = x0 < 280 && x1 > 360;
+		if (!is_overlay(z0, z1) || x1 - x0 < 96 || y1 - y0 < (centred ? 24 : 40) || (x0 <= 1 && x1 >= 639))
 			continue;
 		if (npanels == panel_cap)
 		{
