@@ -10,6 +10,10 @@ All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); 
   on the US disc. On the character select screen, hold **Y** and press **X** on Voldo to play in
   it. Nothing else changes: Y switches to the US 2P outfit as before, and holding Y while pressing
   A still picks his third outfit. Works in every mode, Online Versus included.
+- **Inferno's final boss form** (enrique363/voldorium#23): the flaming Inferno you fight at the
+  end of Arcade mode is now playable as his third outfit. On the character select screen, hold
+  **Y** and press **A** on Inferno. His usual outfits stay on A and Y, and fights keep their
+  usual stages: only the real final battle takes place in Chaos.
 
 ### Changed
 - **No more slowdown when Inferno explodes** (enrique363/voldorium#11, enrique363/voldorium#19):

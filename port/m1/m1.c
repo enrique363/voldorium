@@ -252,6 +252,11 @@ void sh4_loop_poll(SH4 *c)
    - loading: entry 43 asked of the disc loader (0x8c0ac666, r4 3 = HUMAN.DAT, r5 entry) becomes 41;
      the loader's cache key (player + 0x5d10) gets bit 30, so the two 2P costumes never stand in
      for each other.
+   Inferno's boss form (issue #23): the final Arcade battle gives the CPU Inferno (file 19) costume 2,
+   the flaming one, which the select screen never offers (Y with A gives his 2P costume). Holding Y
+   and confirming with A on Inferno marks the slot, and the copy to the player makes it costume 2.
+   The fight setup (0x8c039d60) moves any fight with a boss Inferno to Chaos; for a picked one the
+   stage it had is put back.
    Everything follows the game's own inputs, so both sides of a netplay match agree. */
 #define SEL_STATE_PTR 0x8c25bc70u	/* the select slot being updated (0x9c bytes from 0x8c25bb38) */
 #define SEL_STATES 0x8c25bb38u
@@ -260,7 +265,12 @@ void sh4_loop_poll(SH4 *c)
 #define VOLDO_FILE 5			/* loader r5 */
 #define PAD_HOLD_Y 0x0100u		/* select slot's pad record: +0 held, +2 pressed (game bits) */
 #define PAD_PRESS_X 0x0200u
-static u8 orig_slot[2], orig_player[2], orig_loading;
+#define PAD_PRESS_A 0x0040u
+#define INFERNO_SELECT_ID 19
+#define INFERNO_BOSS_COSTUME 2
+#define STAGE 0x8c25b8bcu			/* the fight's stage */
+#define CHAOS_STAGE 14
+static u8 orig_slot[2], orig_player[2], orig_loading, boss_slot[2], boss_player[2];
 
 static int costume_call(SH4 *c, u32 a, void (*f)(SH4 *))
 {
@@ -274,9 +284,10 @@ static int costume_call(SH4 *c, u32 a, void (*f)(SH4 *))
 			orig_slot[slot] = (s16)rd16(st + 0x14) == VOLDO_SELECT_ID && (held & PAD_HOLD_Y) && (pressed & PAD_PRESS_X);
 			if (orig_slot[slot])
 				wr16(st + 0x16, 1);
+			boss_slot[slot] = (s16)rd16(st + 0x14) == INFERNO_SELECT_ID && (held & PAD_HOLD_Y) && (pressed & PAD_PRESS_A);
 			if (getenv("M1_COSTUMELOG"))
-				printf("costume pick: slot %u char %d costume %d held %04x pressed %04x original %u\n", slot,
-					   (s16)rd16(st + 0x14), (s16)rd16(st + 0x16), held, pressed, orig_slot[slot]);
+				printf("costume pick: slot %u char %d costume %d held %04x pressed %04x original %u boss %u\n", slot,
+					   (s16)rd16(st + 0x14), (s16)rd16(st + 0x16), held, pressed, orig_slot[slot], boss_slot[slot]);
 		}
 		return 1;
 	}
@@ -285,11 +296,32 @@ static int costume_call(SH4 *c, u32 a, void (*f)(SH4 *))
 		const u32 slot = (c->r[4] - SEL_STATES) / 0x9c, player = (c->r[5] - PLAYERS) / 0x86dc;
 		f(c);
 		if (slot < 2 && player < 2)
+		{
 			orig_player[player] = orig_slot[slot];
+			boss_player[player] = boss_slot[slot];
+			if (boss_slot[slot])
+				wr32(PLAYERS + player * 0x86dcu + 0x5c38, INFERNO_BOSS_COSTUME);
+		}
+		return 1;
+	}
+	if (a == 0x8c039d60u)
+	{
+		/* fight setup: a boss Inferno on either side makes the stage Chaos (14); only the game's
+		   own boss (the CPU in Arcade's final battle) keeps that, a picked one leaves the stage */
+		const u32 before = rd32(STAGE);
+		f(c);
+		int game_boss = 0;
+		for (u32 p = 0; p < 2; p++)
+		{
+			const u32 pl = PLAYERS + p * 0x86dcu;
+			game_boss |= rd32(pl + 0x5c30) == INFERNO_SELECT_ID && rd32(pl + 0x5c38) == INFERNO_BOSS_COSTUME && !boss_player[p];
+		}
+		if (rd32(STAGE) == CHAOS_STAGE && before != CHAOS_STAGE && !game_boss)
+			wr32(STAGE, before);
 		return 1;
 	}
 	if (a == 0x8c033b00u)
-		memset(orig_slot, 0, 2), memset(orig_player, 0, 2);
+		memset(orig_slot, 0, 2), memset(orig_player, 0, 2), memset(boss_slot, 0, 2), memset(boss_player, 0, 2);
 	else if (a == 0x8c0ac666u && orig_loading && c->r[4] == 3 && c->r[5] == (VOLDO_FILE - 1) * 10 + 3)
 		c->r[5] = (VOLDO_FILE - 1) * 10 + 1, orig_loading = 0;
 	else if (a == 0x8c02e37au && c->r[4] < 2)
