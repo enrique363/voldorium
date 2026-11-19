@@ -4,6 +4,13 @@ All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); 
 
 ## 1.2.2 (unreleased)
 
+### Added
+- **Voldo's original 2P outfit** (enrique363/voldorium#22): the US release replaced Voldo's 2P
+  outfit, but the original one (the Japanese and European outfit, with the bull's head) is still
+  on the US disc. On the character select screen, hold **Y** and press **X** on Voldo to play in
+  it. Nothing else changes: Y switches to the US 2P outfit as before, and holding Y while pressing
+  A still picks his third outfit. Works in every mode, Online Versus included.
+
 ### Changed
 - **No more slowdown when Inferno explodes** (enrique363/voldorium#11, enrique363/voldorium#19):
   for about a second after Inferno's last round, the game rewrites about 5 textures every frame.

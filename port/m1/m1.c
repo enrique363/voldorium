@@ -239,6 +239,79 @@ void sh4_loop_poll(SH4 *c)
 	}
 }
 
+/* Voldo's original 2P costume (issue #22). The US release swaps it for a new one: the human loader
+   (0x8c02e37a: r4 player, r5 character file 1-21, r6 costume) turns Voldo's (file 5) costume 1 into
+   costume 3, so HUMAN.DAT entry 43 loads instead of 41, which is still on the disc. Holding Y and
+   confirming with X on the select screen picks the original: costume 1 (2P) with entry 41. Y with A
+   stays the third costume, and the plain 2P costume stays the US one.
+   - pick (0x8c0e39a8, one side's confirm; r0 1 or 2 when a character was chosen): the game made
+     it costume 2 (Y held), or kept the preview when the third costume is locked; for Voldo with X
+     it becomes 1 and the select slot is marked
+   - copy to the player (0x8c0e34ae: r4 select slot, r5 player) carries the mark to the player
+   - character select starts (0x8c033b00): marks cleared, so CPU players never have one
+   - loading: entry 43 asked of the disc loader (0x8c0ac666, r4 3 = HUMAN.DAT, r5 entry) becomes 41;
+     the loader's cache key (player + 0x5d10) gets bit 30, so the two 2P costumes never stand in
+     for each other.
+   Everything follows the game's own inputs, so both sides of a netplay match agree. */
+#define SEL_STATE_PTR 0x8c25bc70u	/* the select slot being updated (0x9c bytes from 0x8c25bb38) */
+#define SEL_STATES 0x8c25bb38u
+#define PLAYERS 0x8c24a958u		/* two players, 0x86dc bytes apart */
+#define VOLDO_SELECT_ID 5		/* select slot + 0x14 (player + 0x5c30) */
+#define VOLDO_FILE 5			/* loader r5 */
+#define PAD_HOLD_Y 0x0100u		/* select slot's pad record: +0 held, +2 pressed (game bits) */
+#define PAD_PRESS_X 0x0200u
+static u8 orig_slot[2], orig_player[2], orig_loading;
+
+static int costume_call(SH4 *c, u32 a, void (*f)(SH4 *))
+{
+	if (a == 0x8c0e39a8u)
+	{
+		const u32 st = rd32(SEL_STATE_PTR), pad = rd32(st);
+		const u32 held = rd16(pad), pressed = rd16(pad + 2), slot = (st - SEL_STATES) / 0x9c;
+		f(c);
+		if (slot < 2 && (c->r[0] == 1 || c->r[0] == 2))
+		{
+			orig_slot[slot] = (s16)rd16(st + 0x14) == VOLDO_SELECT_ID && (held & PAD_HOLD_Y) && (pressed & PAD_PRESS_X);
+			if (orig_slot[slot])
+				wr16(st + 0x16, 1);
+			if (getenv("M1_COSTUMELOG"))
+				printf("costume pick: slot %u char %d costume %d held %04x pressed %04x original %u\n", slot,
+					   (s16)rd16(st + 0x14), (s16)rd16(st + 0x16), held, pressed, orig_slot[slot]);
+		}
+		return 1;
+	}
+	if (a == 0x8c0e34aeu)
+	{
+		const u32 slot = (c->r[4] - SEL_STATES) / 0x9c, player = (c->r[5] - PLAYERS) / 0x86dc;
+		f(c);
+		if (slot < 2 && player < 2)
+			orig_player[player] = orig_slot[slot];
+		return 1;
+	}
+	if (a == 0x8c033b00u)
+		memset(orig_slot, 0, 2), memset(orig_player, 0, 2);
+	else if (a == 0x8c0ac666u && orig_loading && c->r[4] == 3 && c->r[5] == (VOLDO_FILE - 1) * 10 + 3)
+		c->r[5] = (VOLDO_FILE - 1) * 10 + 1, orig_loading = 0;
+	else if (a == 0x8c02e37au && c->r[4] < 2)
+	{
+		const u32 key = PLAYERS + c->r[4] * 0x86dcu + 0x5d10;
+		const int want = c->r[5] == VOLDO_FILE && c->r[6] == 1 && orig_player[c->r[4]];
+		u32 k = rd32(key);
+		if (k != ~0u && (k >> 30 & 1) != (u32)want)
+			wr32(key, ~0u);	/* the other 2P costume (or another character) is loaded */
+		else if (k != ~0u)
+			wr32(key, k & ~0x40000000u);
+		orig_loading = (u8)want;
+		f(c);
+		orig_loading = 0;
+		k = rd32(key);
+		if (want && k != ~0u)
+			wr32(key, k | 0x40000000u);
+		return 1;
+	}
+	return 0;
+}
+
 void sh4_call(SH4 *c, u32 a)
 {
 	hw_tick(100);
@@ -331,7 +404,7 @@ void sh4_call(SH4 *c, u32 a)
 	const u32 out = c->r[4], n = c->r[6];
 	if (a == 0x8c0f3d46u)
 		online_menu(c, f);	/* main menu: the Online Versus entry and lobby (online.c) */
-	else
+	else if (!costume_call(c, a, f))
 		f(c);
 	if (a == 0x8c03a9ccu && c->r[0] == 0)
 		wide_mesh_visible(c, out, n);
