@@ -16,7 +16,8 @@ together with a small native runtime that stands in for the Dreamcast hardware. 
 - **AMD FSR 1 upscaling**: ULTRA QUALITY, QUALITY, BALANCED and PERFORMANCE presets draw below
   native and upscale with sharp edges, for slower PCs and handhelds.
 - **Multisample anti-aliasing and VSync** (no tearing).
-- **Smooth text**: menu and HUD text drawn from upscaled copies of the game's font.
+- **Smooth text**: menu and HUD text drawn from enlarged copies of the game's font, with smooth
+  curved outlines and crisp colour (Anime4K), antialiased under MSAA.
 - **High-res portraits**: the character select portraits enlarged in detail on your GPU by
   Anime4K, a small neural network (GRAPHICS menu, HI-RES PORTRAITS).
 - New high resolution art for the hit level labels in Practice (`port/m1/textures`, drawn by

@@ -113,8 +113,10 @@ blurred sides. replace: a 16:9 version replaces the picture where there is one (
 elsewhere): put <name>.png in the art16x9 folder (names in art16x9/refs.txt, any 16:9 size,
 the original picture centred at the same scale).
 
-Text: menu and HUD text is drawn from upscaled copies of the game's font textures, so it keeps
-its size with smooth edges at high resolutions. [video] text = sharp draws it as the original
+Text: menu and HUD text is drawn from enlarged copies of the game's font textures, so it keeps
+its size at high resolutions: the letters' outlines follow their curves instead of the original
+pixels' steps, their colour is enlarged by Anime4K (see High-res portraits), and with
+anti-aliasing on, the outlines are antialiased too. [video] text = sharp draws the original
 pixels instead.
 
 High-res portraits: the character select portraits are enlarged in detail on your graphics

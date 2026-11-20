@@ -19,6 +19,10 @@ All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); 
   (MIT licence), a small neural network made for drawn art, instead of being blown up blurry.
   GRAPHICS, MORE SETTINGS, **HI-RES PORTRAITS** turns it off (`[video] portraits = 0`). With
   an update available, that page's BACK line becomes the UPDATE line.
+- **Sharper smooth text** (enrique363/voldorium#24): with TEXT SMOOTH, menu and HUD text (the
+  game's fonts, names, timer, round messages) keeps smooth curved outlines instead of the
+  original pixels' steps, its colour is enlarged by Anime4K, and with anti-aliasing on, the
+  outlines are antialiased.
 
 ### Changed
 - **No more slowdown when Inferno explodes** (enrique363/voldorium#11, enrique363/voldorium#19):

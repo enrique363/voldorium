@@ -194,6 +194,7 @@ typedef struct
 	u64 hi_since;				/* render count */
 	int hi_picture;				/* the last upscale was an opaque picture (Anime4K, render.c) */
 	int hi_plain;				/* not upscaled under the current settings: drawn plain */
+	int hi_edge;				/* a cut-out with a smooth outline (cut_alpha, Anime4K colour) */
 	unsigned rep_id;			/* with replacement art (tex_get_rep), 0: none */
 	u64 rep_key;				/* the contents rep_id was made for (hash ^ pal_hash), 0: not checked */
 } TexEntry;
@@ -307,7 +308,7 @@ static TexEntry *lookup(u32 tcw, u32 tsp)
 	e->id = gl_upload_texture(e->used ? e->id : 0, w, hh, buf);
 	tex_decode_ms += (double)(clock() - td0) * 1000.0 / CLOCKS_PER_SEC;	/* M1_PERF=slow */
 	if (!e->used || e->tcw != tcw || e->size != size)
-		e->hi_volatile = 0, e->hi_count = 0, e->hi_picture = 0, e->hi_plain = 0;	/* another texture in this slot */
+		e->hi_volatile = 0, e->hi_count = 0, e->hi_picture = 0, e->hi_plain = 0, e->hi_edge = 0;	/* another texture in this slot */
 	e->used = 1;
 	e->tcw = tcw;
 	e->size = size;
@@ -421,6 +422,141 @@ static void upscale(const u32 *src, u32 w, u32 h, u32 k, u32 *dst)
 	}
 }
 
+/* ---- cut-outs (text): Anime4K colour, smooth outline ----------------------------------------
+ * A texture whose texels are either clear or solid (the fonts, punch-through) is drawn where
+ * its enlarged alpha crosses one half (render.c). The cubic alpha keeps the texels' staircase
+ * in that line; blurred by 0.7 texel first, the line follows the letters' curves instead. Its
+ * colour is enlarged by Anime4K like the pictures, after the solid texels' colours are spread
+ * into the clear ones next to them (else the edge would take the clear texels' colour). */
+
+/* the colours of solid texels spread into clear ones, 8 texels deep (in place, alpha kept) */
+static void cut_fill(u32 *a, u32 w, u32 h)
+{
+	static u8 *known, *next;
+	static size_t cap;
+	if ((size_t)w * h > cap)
+	{
+		cap = (size_t)w * h;
+		free(known), free(next);
+		known = malloc(cap), next = malloc(cap);
+	}
+	for (u32 i = 0; i < w * h; i++)
+		known[i] = a[i] >> 24 != 0;
+	for (int pass = 0; pass < 8; pass++)
+	{
+		int grew = 0;
+		memcpy(next, known, (size_t)w * h);
+		for (u32 y = 0; y < h; y++)
+			for (u32 x = 0; x < w; x++)
+			{
+				const u32 i = y * w + x;
+				if (known[i])
+					continue;
+				u32 s[3] = { 0, 0, 0 }, n = 0;
+				const u32 nb[4] = { x > 0 ? i - 1 : i, x + 1 < w ? i + 1 : i, y > 0 ? i - w : i, y + 1 < h ? i + w : i };
+				for (int j = 0; j < 4; j++)
+					if (nb[j] != i && known[nb[j]])
+					{
+						const u32 c = a[nb[j]];
+						s[0] += c & 255, s[1] += c >> 8 & 255, s[2] += c >> 16 & 255, n++;
+					}
+				if (n)
+				{
+					a[i] = (s[0] / n) | (s[1] / n) << 8 | (s[2] / n) << 16;	/* alpha stays 0 */
+					next[i] = 1, grew = 1;
+				}
+			}
+		memcpy(known, next, (size_t)w * h);
+		if (!grew)
+			break;
+	}
+}
+
+/* the alpha of a (w x h) blurred by 0.7 texel and enlarged k times (Catmull-Rom), into out (bytes) */
+static void cut_alpha(const u32 *a, u32 w, u32 h, u32 k, u8 *out)
+{
+	const u32 W = w * k, H = h * k;
+	static float *s0, *s1, *t1;
+	static size_t cap, scap;
+	if ((size_t)w * h > scap)
+	{
+		scap = (size_t)w * h;
+		free(s0), free(s1);
+		s0 = malloc(scap * sizeof(float)), s1 = malloc(scap * sizeof(float));
+	}
+	if ((size_t)W * h > cap)
+	{
+		cap = (size_t)W * h;
+		free(t1);
+		t1 = malloc(cap * sizeof(float));
+	}
+	/* blurred first (the same as after, at a sixteenth of the work): a Gaussian of 0.7 texels */
+	enum { R = 3 };
+	float g[2 * R + 1], sum = 0;
+	for (int i = -R; i <= R; i++)
+		sum += g[i + R] = expf(-(float)(i * i) / (2 * 0.7f * 0.7f));
+	for (int i = 0; i <= 2 * R; i++)
+		g[i] /= sum;
+	for (u32 y = 0; y < h; y++)
+		for (u32 x = 0; x < w; x++)
+		{
+			float acc = 0;
+			for (int i = -R; i <= R; i++)
+			{
+				int xx = (int)x + i;
+				xx = xx < 0 ? 0 : xx >= (int)w ? (int)w - 1 : xx;
+				acc += g[i + R] * (float)(a[y * w + xx] >> 24);
+			}
+			s1[y * w + x] = acc;
+		}
+	for (u32 y = 0; y < h; y++)
+		for (u32 x = 0; x < w; x++)
+		{
+			float acc = 0;
+			for (int i = -R; i <= R; i++)
+			{
+				int yy = (int)y + i;
+				yy = yy < 0 ? 0 : yy >= (int)h ? (int)h - 1 : yy;
+				acc += g[i + R] * s1[yy * w + x];
+			}
+			s0[y * w + x] = acc;
+		}
+	/* enlarged: horizontal into t1 (W x h), vertical out (W x H) */
+	for (u32 y = 0; y < h; y++)
+		for (u32 X = 0; X < W; X++)
+		{
+			const float fx = (X + 0.5f) / k - 0.5f;
+			const int x0 = (int)floorf(fx);
+			float acc = 0;
+			for (int i = 0; i < 4; i++)
+			{
+				int x = x0 - 1 + i;
+				x = x < 0 ? 0 : x >= (int)w ? (int)w - 1 : x;
+				acc += cr_w(fx - x0, i) * s0[y * w + x];
+			}
+			t1[y * W + X] = acc;
+		}
+	for (u32 Y = 0; Y < H; Y++)
+	{
+		const float fy = (Y + 0.5f) / k - 0.5f;
+		const int y0 = (int)floorf(fy);
+		float wt[4];
+		for (int i = 0; i < 4; i++)
+			wt[i] = cr_w(fy - y0, i);
+		for (u32 X = 0; X < W; X++)
+		{
+			float acc = 0;
+			for (int i = 0; i < 4; i++)
+			{
+				int y = y0 - 1 + i;
+				y = y < 0 ? 0 : y >= (int)h ? (int)h - 1 : y;
+				acc += wt[i] * t1[(size_t)y * W + X];
+			}
+			out[(size_t)Y * W + X] = (u8)(acc < 0 ? 0 : acc > 255 ? 255 : acc + 0.5f);
+		}
+	}
+}
+
 /* the GRAPHICS menu changed TEXT or HI-RES PORTRAITS: every upscaled copy is made again */
 void tex_hi_reset(void)
 {
@@ -432,14 +568,16 @@ void tex_hi_reset(void)
    filtering at high resolutions (render.c: text and HUD); *scale = the factor,
    1 when the texture is too large (then it is the plain one). text: [video] text = smooth
    (the cubic enlargement), pictures: [video] portraits = 1 (opaque pictures by Anime4K);
-   what neither covers is drawn plain */
-unsigned tex_get_hi(u32 tcw, u32 tsp, int *scale, int text, int pictures)
+   what neither covers is drawn plain. *edge: a cut-out with a smooth outline (render.c draws
+   its edge one screen pixel wide) */
+unsigned tex_get_hi(u32 tcw, u32 tsp, int *scale, int *edge, int text, int pictures)
 {
 	TexEntry *e = lookup(tcw, tsp);
 	const u32 w = 8u << ((tsp >> 3) & 7), h = (tcw >> 31) ? w : 8u << (tsp & 7);
 	const u32 big = w > h ? w : h;
 	const int k = big <= 256 ? 4 : big <= 512 ? 2 : 1;
 	*scale = k;
+	*edge = 0;
 	if (k == 1 || e->hi_volatile || (e->hi_ok && e->hi_plain))
 	{
 		*scale = 1;
@@ -472,13 +610,34 @@ unsigned tex_get_hi(u32 tcw, u32 tsp, int *scale, int text, int pictures)
 			log = getenv("M1_HILOG") != 0;
 		const clock_t t0 = log ? clock() : 0;
 		decode(tcw, w, h, a);
-		/* an opaque picture (the character select portraits): Anime4K on the GPU (render.c) */
-		int opaque = 1;
-		for (u32 i = 0; i < w * h && opaque; i++)
-			opaque = a[i] >> 24 == 255;
-		unsigned gl_a4k_upscale(unsigned id, u32 w, u32 h, const u32 *rgba, int runs);
-		const unsigned nn = opaque && pictures ? gl_a4k_upscale(e->hi_id, w, h, a, k == 4 ? 2 : 1) : 0;
-		e->hi_picture = nn != 0;
+		/* an opaque picture (the character select portraits) or a cut-out (text): Anime4K on
+		   the GPU (render.c) */
+		int solid = 0, clear = 0, other = 0;
+		for (u32 i = 0; i < w * h; i++)
+		{
+			const u32 al = a[i] >> 24;
+			solid |= al == 255, clear |= al == 0, other |= al != 0 && al != 255;
+		}
+		const int opaque = !clear && !other, cut = solid && clear && !other;
+		unsigned gl_a4k_upscale(unsigned id, u32 w, u32 h, const u32 *rgba, int runs, const u8 *alpha);
+		const int runs = k == 4 ? 2 : 1;
+		unsigned nn = 0;
+		e->hi_edge = 0;
+		if (opaque && pictures)
+			nn = gl_a4k_upscale(e->hi_id, w, h, a, runs, 0);
+		else if (cut && text)
+		{
+			static u8 *al;
+			if (!al)
+				al = malloc(1024 * 1024 * 4);
+			cut_alpha(a, w, h, (u32)k, al);
+			cut_fill(a, w, h);
+			nn = gl_a4k_upscale(e->hi_id, w, h, a, runs, al);
+			e->hi_edge = nn != 0;
+			if (!nn)
+				decode(tcw, w, h, a);	/* the cubic enlargement below, from the original */
+		}
+		e->hi_picture = nn && opaque;
 		e->hi_plain = !nn && !text;
 		if (nn)
 			e->hi_id = nn;
@@ -500,6 +659,7 @@ unsigned tex_get_hi(u32 tcw, u32 tsp, int *scale, int text, int pictures)
 			return e->id;
 		}
 	}
+	*edge = e->hi_edge;
 	return e->hi_id;
 }
 

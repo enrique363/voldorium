@@ -127,7 +127,7 @@ extern char **environ;
 u32 hw_reg(u32 addr);
 unsigned tex_get(u32 tcw, u32 tsp);
 unsigned tex_get_rep(u32 tcw, u32 tsp);
-unsigned tex_get_hi(u32 tcw, u32 tsp, int *scale, int text, int pictures);
+unsigned tex_get_hi(u32 tcw, u32 tsp, int *scale, int *edge, int text, int pictures);
 void tex_hi_reset(void);
 
 static SDL_Window *win;
@@ -181,7 +181,8 @@ static const char *fs_src =
 	"noperspective in float v_bad;\n"
 	"uniform sampler2D tex;\n"
 	"uniform int mode;      // texture instruction, -1 = no texture\n"
-	"uniform int flags;     // 1 use alpha, 2 ignore texture alpha, 4 offset colour\n"
+	"uniform int flags;     // 1 use alpha, 2 ignore texture alpha, 4 offset colour, 8 cut-out edge,\n"
+	"                       // 16 the edge as coverage (punch-through with MSAA)\n"
 	"uniform float alpha_ref; // PT_ALPHA_REF (0-255), < 0: no alpha test\n"
 	"uniform int fog;       // TSP fog mode: 1 = per vertex (offset alpha)\n"
 	"uniform vec3 fog_col;  // FOG_COL_VERT\n"
@@ -206,9 +207,16 @@ static const char *fs_src =
 	"  gl_FragDepth = 1.0 / (1.0 + v_uvw.z);\n"
 	"  vec4 c = v_col * w;\n"
 	"  if ((flags & 1) == 0) c.a = 1.0;\n"
+	"  float edge = 1.0;\n"
 	"  if (mode >= 0) {\n"
 	"    vec4 t = texture(tex, v_uv);\n"
 	"    if ((flags & 2) != 0) t.a = 1.0;\n"
+	"    // an enlarged cut-out (tex.c hi_edge): the edge where its smooth alpha crosses one half,\n"
+	"    // one screen pixel wide; punch-through tests the rest and keeps the edge apart\n"
+	"    if ((flags & 8) != 0) {\n"
+	"      edge = clamp((t.a - 0.5) / max(fwidth(t.a), 1.0 / 255.0) + 0.5, 0.0, 1.0);\n"
+	"      t.a = alpha_ref >= 0.0 ? 1.0 : edge;\n"
+	"    }\n"
 	"    if (mode == 0) c = vec4(t.rgb, t.a);\n"
 	"    else if (mode == 1) c = vec4(t.rgb * c.rgb, t.a);\n"
 	"    else if (mode == 2) c = vec4(mix(c.rgb, t.rgb, t.a), c.a);\n"
@@ -221,6 +229,10 @@ static const char *fs_src =
 	"  // the PowerVR compares 8-bit alphas: alpha 1.0 interpolated across a polygon comes out a\n"
 	"  // hair below 1.0 in floats and would fail PT_ALPHA_REF 255\n"
 	"  if (alpha_ref >= 0.0 && floor(c.a * 255.0 + 0.5) < alpha_ref) discard;\n"
+	"  if (alpha_ref >= 0.0 && (flags & 8) != 0) {\n"
+	"    if ((flags & 16) != 0) { if (edge <= 0.0) discard; c.a = edge; }  // alpha to coverage\n"
+	"    else if (edge < 0.5) discard;\n"
+	"  }\n"
 	"  frag = clamp(c, 0.0, 1.0);\n"
 	"}\n";
 
@@ -988,7 +1000,7 @@ int video_enabled(void)
 	for (int i = 0; i < 4; i++)
 		glEnableVertexAttribArray(i);
 	/* Anime4K's shaders are compiled now, not at the first picture (half a second) */
-	if (video_portraits() && a4k_ready())
+	if ((video_portraits() || !video_text_sharp()) && a4k_ready())
 	{
 		glUseProgram(prog);
 		glBindVertexArray(vao);
@@ -1101,14 +1113,16 @@ static int a4k_ready(void)
 			return 0;
 		a4k_prog[i] = a4k_link(vs, fs, ps->nbind, ps->bind);
 	}
+	/* the colour clamped; the alpha from ALPHA (a cut-out's smoothed alpha, tex.c) or opaque */
 	static const char *out_src =
-		"#version 330 core\nin vec2 v_pos;\nout vec4 o_col;\nuniform sampler2D MAIN_raw;\n"
-		"void main() { o_col = vec4(clamp(texture(MAIN_raw, v_pos).rgb, 0.0, 1.0), 1.0); }\n";
+		"#version 330 core\nin vec2 v_pos;\nout vec4 o_col;\nuniform sampler2D MAIN_raw, ALPHA_raw;\nuniform int has_alpha;\n"
+		"void main() { o_col = vec4(clamp(texture(MAIN_raw, v_pos).rgb, 0.0, 1.0),\n"
+		"                           has_alpha != 0 ? texture(ALPHA_raw, v_pos).r : 1.0); }\n";
 	const GLuint ofs = a4k_shader(GL_FRAGMENT_SHADER, out_src, "output");
 	if (!ofs)
 		return 0;
-	static const char *const main_name[1] = { "MAIN" };
-	a4k_out_prog = a4k_link(vs, ofs, 1, main_name);
+	static const char *const main_name[2] = { "MAIN", "ALPHA" };
+	a4k_out_prog = a4k_link(vs, ofs, 2, main_name);
 	static const float tri[6] = { -1, -1, 3, -1, -1, 3 };	/* one triangle covers the viewport */
 	glGenVertexArrays(1, &a4k_vao);
 	glBindVertexArray(a4k_vao);
@@ -1137,9 +1151,10 @@ static GLuint a4k_texture(int w, int h, GLenum fmt, GLint filter, const void *rg
 	return t;
 }
 
-/* the opaque picture rgba (w x h) enlarged 2^runs times into texture id (replaced; 0: a new one),
-   RGBA8; 0 when Anime4K is off or failed (id is then left alone) */
-unsigned gl_a4k_upscale(unsigned id, u32 w, u32 h, const u32 *rgba, int runs)
+/* the picture rgba (w x h, its colour; alpha not used) enlarged 2^runs times into texture id
+   (replaced; 0: a new one), RGBA8; its alpha from alpha (the enlarged size, one byte a texel) or
+   opaque when 0. Returns 0 when Anime4K failed (id is then left alone) */
+unsigned gl_a4k_upscale(unsigned id, u32 w, u32 h, const u32 *rgba, int runs, const u8 *alpha)
 {
 	if (runs < 1 || !a4k_ready())
 		return 0;
@@ -1214,9 +1229,24 @@ unsigned gl_a4k_upscale(unsigned id, u32 w, u32 h, const u32 *rgba, int runs)
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, id, 0);
 	glViewport(0, 0, mw, mh);
 	glUseProgram(a4k_out_prog);
+	GLuint atex = 0;
+	if (alpha)
+	{
+		glGenTextures(1, &atex);
+		glActiveTexture(GL_TEXTURE1);
+		glBindTexture(GL_TEXTURE_2D, atex);
+		glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, mw, mh, 0, GL_RED, GL_UNSIGNED_BYTE, alpha);
+		glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	}
+	glUniform1i(glGetUniformLocation(a4k_out_prog, "has_alpha"), alpha != 0);
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, tex[0]);
 	glDrawArrays(GL_TRIANGLES, 0, 3);
+	if (atex)
+		glDeleteTextures(1, &atex);
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
 	for (int k = 0; k < ntex; k++)
 		glDeleteTextures(1, &tex[k]);
@@ -1452,6 +1482,7 @@ static void batch_add(u32 first, u32 count)
 static void state_invalidate(void)
 {
 	batch_flush();
+	glDisable(GL_SAMPLE_ALPHA_TO_COVERAGE);	/* only the polygons' own state turns it on */
 	st_valid = 0;
 }
 
@@ -1511,10 +1542,15 @@ static void state_for(const TaPoly *p, int list, PolyState *s)
 	}
 	else if ((smooth || pictures) && tgt_w == 640 && vp_h > 600 && p->cls >= M1_2D_HUD && p->cls <= M1_2D_SCREEN)
 	{
-		s->tex = tex_get_hi(p->tcw, tsp, &hi, smooth, pictures);
+		int edge = 0;
+		s->tex = tex_get_hi(p->tcw, tsp, &hi, &edge, smooth, pictures);
 		if (hi > 1)
 		{
 			filt = GL_LINEAR;
+			/* an enlarged cut-out (text): its edge drawn one screen pixel wide, as coverage
+			   under MSAA (decal mode uses the texture's alpha as colour, so not there) */
+			if (edge && s->mode != 2 && !(s->flags & 2))
+				s->flags |= list == 4 && frame_samples > 0 ? 8 | 16 : 8;
 			if (list == 4 && (hw_reg(0x005f811c) & 255) > 128)
 				s->alpha_ref = 128.0f;
 		}
@@ -1558,6 +1594,13 @@ static void state_apply(const PolyState *s, int view)
 	}
 	if (all || s->flags != c->flags)
 		glUniform1i(u_flags, s->flags);
+	if (all || (s->flags & 16) != (c->flags & 16))
+	{
+		if (s->flags & 16)
+			glEnable(GL_SAMPLE_ALPHA_TO_COVERAGE);
+		else
+			glDisable(GL_SAMPLE_ALPHA_TO_COVERAGE);
+	}
 	if (all || s->alpha_ref != c->alpha_ref)
 		glUniform1f(u_alpha_ref, s->alpha_ref);
 	if (all || s->fog != c->fog)
