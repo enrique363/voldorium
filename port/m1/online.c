@@ -1,7 +1,7 @@
 /* Online Versus and Graphics from the game's own main menu (Windows).
  *
  * GRAPHICS (after OPTIONS) opens a submenu the same way: display (full screen or a window),
- * resolution, anti-aliasing, VSync and loading speed (hle.c); selecting a line cycles its value, applied at once and saved
+ * resolution, anti-aliasing, VSync, loading speed (hle.c), text and portraits; selecting a line cycles its value, applied at once and saved
  * (render.c video_*). The main menu's entries are rebuilt in scratch RAM (13 instead of 12);
  * ONLINE VERSUS and GRAPHICS share the INTERNET entry's id (help line switched by the cursor).
  *
@@ -60,7 +60,7 @@ void online_menu(SH4 *c, void (*f)(SH4 *));
 #define POOL_N 6
 #define ID_BACK 21			/* TO MAIN MENU */
 /* values of the lobby's action entries (the game's own go up to 0x13) */
-enum { V_PEER = 0x40, V_CANCEL = 0x48, V_ACCEPT, V_DECLINE, V_STATUS, V_L_UPDATE, V_G_DISPLAY = 0x50, V_G_RES, V_G_AA, V_G_VSYNC, V_G_LOADING, V_G_HUD, V_G_BG, V_G_TEXT, V_G_VOLUME, V_G_MORE, V_G_UPDATE, V_G_FIRST };	/* V_STATUS: a status line (selecting it does nothing; a disabled line would show "Not available in this version.") */
+enum { V_PEER = 0x40, V_CANCEL = 0x48, V_ACCEPT, V_DECLINE, V_STATUS, V_L_UPDATE, V_G_DISPLAY = 0x50, V_G_RES, V_G_AA, V_G_VSYNC, V_G_LOADING, V_G_HUD, V_G_BG, V_G_TEXT, V_G_VOLUME, V_G_MORE, V_G_UPDATE, V_G_FIRST, V_G_PORTRAITS };	/* V_STATUS: a status line (selecting it does nothing; a disabled line would show "Not available in this version.") */
 
 static void put32(u32 a, u32 v) { memcpy(&sh4_ram[a & 0xffffff], &v, 4); }
 static void put16(u32 a, u16 v) { memcpy(&sh4_ram[a & 0xffffff], &v, 2); }
@@ -1027,6 +1027,8 @@ int video_backgrounds(void);
 void video_next_backgrounds(void);
 int video_text_sharp(void);
 void video_next_text(void);
+int video_portraits(void);
+void video_next_portraits(void);
 int audio_volume(void);
 void audio_next_volume(void);
 void video_open_url(const char *url);
@@ -1045,13 +1047,16 @@ static void build_graphics(u32 cur)
 		line(loading_fast() ? "LOADING FAST" : "LOADING ORIGINAL", "Original: Dreamcast disc speed. Fast: instant.", V_G_LOADING, 1);
 		line(bg[video_backgrounds()], "4:3 pictures: stretched, blurred or black sides.", V_G_BG, 1);
 		line(video_text_sharp() ? "TEXT SHARP" : "TEXT SMOOTH", "Menu text: smooth edges, or original pixels.", V_G_TEXT, 1);
+		line(video_portraits() ? "HI-RES PORTRAITS ON" : "HI-RES PORTRAITS OFF", "Character select portraits enlarged in detail.", V_G_PORTRAITS, 1);
 		const int vol = audio_volume();
 		if (vol)
 			snprintf(l, sizeof(l), "VOLUME %d", vol);
 		line(vol ? l : "VOLUME OFF", "Sound volume. Select to change it.", V_G_VOLUME, 1);
 		if (latest[0])
-			update_line(V_G_UPDATE);
-		line("BACK", "Display, resolution, anti-aliasing, HUD.", V_G_FIRST, 1);
+			update_line(V_G_UPDATE);	/* in BACK's place: six lines at most (TO MAIN MENU, then
+										   GRAPHICS again, opens the first page) */
+		else
+			line("BACK", "Display, resolution, anti-aliasing, HUD.", V_G_FIRST, 1);
 	}
 	else
 	{
@@ -1066,7 +1071,7 @@ static void build_graphics(u32 cur)
 	line(video_vsync() ? "VSYNC ON" : "VSYNC OFF", "On: no tearing. Off: lowest input delay.", V_G_VSYNC, 1);
 	static const char *const hud[3] = { "HUD EDGES", "HUD MIDDLE", "HUD 4:3" };
 	line(hud[video_hud()], "Fight HUD: at the edges, halfway, or as in 4:3."	/* no wider than the others: text reaching the screen's sides reads as a 4:3 picture (render.c) */, V_G_HUD, 1);
-	line("MORE SETTINGS", latest[0] ? "Loading, backgrounds, text, volume, update." : "Loading, backgrounds, text and volume.", V_G_MORE, 1);
+	line("MORE SETTINGS", latest[0] ? "Loading, backgrounds, text, portraits, update." : "Loading, backgrounds, text, portraits, volume.", V_G_MORE, 1);
 	}
 	line("TO MAIN MENU", "", 0, 2);
 	for (int k = nlines; k < POOL_N; k++)
@@ -1097,6 +1102,8 @@ static void graphics_choose(int v)
 		video_next_backgrounds();
 	else if (v == V_G_TEXT)
 		video_next_text();
+	else if (v == V_G_PORTRAITS)
+		video_next_portraits();
 	else if (v == V_G_VOLUME)
 		audio_next_volume();
 	else if (v == V_G_UPDATE)
@@ -1321,6 +1328,14 @@ void online_menu(SH4 *c, void (*f)(SH4 *))
 			graphics_choose(V_G_RES);
 			graphics_choose(V_G_AA);
 		}
+		/* M1_LOBBY_TEST=graphics,portraits: MORE SETTINGS, then HI-RES PORTRAITS once */
+		static int pcalls;
+		if (strstr(test, "portraits") && get32(cur) == 1 && ++pcalls == 120)
+			graphics_choose(V_G_MORE);
+		else if (strstr(test, "portraits") && pcalls == 240)
+			put32(cur + 4, 3);	/* the cursor onto it, then chosen */
+		else if (strstr(test, "portraits") && pcalls == 360)
+			graphics_choose(V_G_PORTRAITS);
 	}
 	else if (test && allowed && get32(cur) == 0 && ++test_calls == 60)
 	{
@@ -1396,7 +1411,7 @@ void online_menu(SH4 *c, void (*f)(SH4 *))
 		c->r[0] = 0x12;
 		lobby_choose((int)v);
 	}
-	else if (slot_kind == SLOT_GRAPHICS && v >= V_G_DISPLAY && v <= V_G_FIRST)
+	else if (slot_kind == SLOT_GRAPHICS && v >= V_G_DISPLAY && v <= V_G_PORTRAITS)
 	{
 		put32(cur + 0x28, 0);
 		c->r[0] = 0x12;

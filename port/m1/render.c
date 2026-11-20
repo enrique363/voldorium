@@ -127,7 +127,8 @@ extern char **environ;
 u32 hw_reg(u32 addr);
 unsigned tex_get(u32 tcw, u32 tsp);
 unsigned tex_get_rep(u32 tcw, u32 tsp);
-unsigned tex_get_hi(u32 tcw, u32 tsp, int *scale);
+unsigned tex_get_hi(u32 tcw, u32 tsp, int *scale, int text, int pictures);
+void tex_hi_reset(void);
 
 static SDL_Window *win;
 static SDL_GLContext glc;
@@ -266,6 +267,8 @@ static const int fsr_pcts[] = { 77, 67, 59, 50 };	/* FSR 1's ultra quality, qual
 void config_set(const char *section, const char *key, const char *value);
 void config_save(void);
 int video_text_sharp(void);
+int video_portraits(void);
+static int a4k_ready(void);	/* Anime4K picture enlargement (below) */
 
 static void video_settings_load(void)
 {
@@ -984,6 +987,13 @@ int video_enabled(void)
 	glVertexAttribPointer(3, GL_BGRA, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(TaVert), (void *)24);
 	for (int i = 0; i < 4; i++)
 		glEnableVertexAttribArray(i);
+	/* Anime4K's shaders are compiled now, not at the first picture (half a second) */
+	if (video_portraits() && a4k_ready())
+	{
+		glUseProgram(prog);
+		glBindVertexArray(vao);
+		glBindBuffer(GL_ARRAY_BUFFER, vbo);
+	}
 	for (int i = 0; i < SDL_NumJoysticks(); i++)
 		pad_added(i);
 	return enabled;
@@ -1005,6 +1015,230 @@ unsigned gl_upload_texture(unsigned id, u32 w, u32 h, const u32 *rgba)
 	glGenTextures(1, &id);
 	glBindTexture(GL_TEXTURE_2D, id);
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, (GLsizei)w, (GLsizei)h, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+	return id;
+}
+
+/* ---- Anime4K: 2D pictures enlarged by a small neural network ----------------------------------
+ * Opaque 2D pictures drawn above 640x480 (the character select portraits) are enlarged when they
+ * are loaded (tex.c tex_get_hi) by Anime4K's Upscale CNN x2 (VL), an mpv user shader (MIT
+ * licence, a4k_shaders.h made by tools/a4k_shaders.py), run on the GPU once per picture: each
+ * run doubles the size, two runs give the 4 times tex.c asks for. The passes' GLSL is kept as is;
+ * this adds what mpv gives a shader around it (NAME_tex, _pos, _pt, _size, _texOff for each bound
+ * texture) and runs the passes into half-float textures. The colour comes from the network, the
+ * picture is opaque. [video] portraits = 0 (M1_A4K=0, GRAPHICS menu HI-RES PORTRAITS OFF): off,
+ * the cubic enlargement instead (or the original pixels with [video] text = sharp). */
+#include "a4k_shaders.h"
+#define A4K_PASSES (int)(sizeof(a4k_passes) / sizeof(a4k_passes[0]))
+static GLuint a4k_prog[A4K_PASSES], a4k_out_prog, a4k_vao, a4k_vbo, a4k_fbo;
+static int a4k_state;	/* 0 not tried, 1 ready, -1 off (M1_A4K=0, or a shader failed) */
+
+static GLuint a4k_shader(GLenum type, const char *src, const char *what)
+{
+	GLuint s = glCreateShader(type);
+	glShaderSource(s, 1, &src, 0);
+	glCompileShader(s);
+	GLint ok;
+	glGetShaderiv(s, GL_COMPILE_STATUS, &ok);
+	if (!ok)
+	{
+		char log[1024];
+		glGetShaderInfoLog(s, sizeof(log), 0, log);
+		printf("video: Anime4K pass %s rejected, pictures enlarged plainly instead:\n%s\n", what, log);
+		return 0;
+	}
+	return s;
+}
+
+static GLuint a4k_link(GLuint vs, GLuint fs, int nbind, const char *const *bind)
+{
+	const GLuint p = glCreateProgram();
+	glAttachShader(p, vs);
+	glAttachShader(p, fs);
+	glLinkProgram(p);
+	glUseProgram(p);
+	for (int i = 0; i < nbind; i++)
+	{
+		char name[64];
+		snprintf(name, sizeof(name), "%s_raw", bind[i]);
+		glUniform1i(glGetUniformLocation(p, name), i);	/* texture unit i */
+	}
+	return p;
+}
+
+static int a4k_ready(void)
+{
+	if (a4k_state)
+		return a4k_state > 0;
+	a4k_state = -1;	/* [video] portraits = 0 (M1_A4K=0) never calls it (video_portraits) */
+	const clock_t t0 = clock();
+	static const char *vs_src =
+		"#version 330 core\n"
+		"layout(location = 0) in vec2 p;\n"
+		"out vec2 v_pos;\n"
+		"void main() { v_pos = p * 0.5 + 0.5; gl_Position = vec4(p, 0.0, 1.0); }\n";
+	const GLuint vs = a4k_shader(GL_VERTEX_SHADER, vs_src, "vertex");
+	if (!vs)
+		return 0;
+	static char src[64 * 1024];
+	for (int i = 0; i < A4K_PASSES; i++)
+	{
+		const A4kPass *ps = &a4k_passes[i];
+		int n = snprintf(src, sizeof(src), "#version 330 core\nin vec2 v_pos;\nout vec4 o_col;\n");
+		for (int b = 0; b < ps->nbind; b++)
+		{
+			const char *t = ps->bind[b];
+			n += snprintf(src + n, sizeof(src) - n,
+						  "uniform sampler2D %s_raw;\n#define %s_pos v_pos\n#define %s_size vec2(textureSize(%s_raw, 0))\n"
+						  "#define %s_pt (1.0 / %s_size)\n#define %s_tex(p) texture(%s_raw, p)\n"
+						  "#define %s_texOff(off) %s_tex(%s_pos + %s_pt * (off))\n",
+						  t, t, t, t, t, t, t, t, t, t, t, t);
+		}
+		n += snprintf(src + n, sizeof(src) - n, "%s\nvoid main() { o_col = hook(); }\n", ps->body);
+		if (n >= (int)sizeof(src))
+			return 0;
+		const GLuint fs = a4k_shader(GL_FRAGMENT_SHADER, src, ps->desc);
+		if (!fs)
+			return 0;
+		a4k_prog[i] = a4k_link(vs, fs, ps->nbind, ps->bind);
+	}
+	static const char *out_src =
+		"#version 330 core\nin vec2 v_pos;\nout vec4 o_col;\nuniform sampler2D MAIN_raw;\n"
+		"void main() { o_col = vec4(clamp(texture(MAIN_raw, v_pos).rgb, 0.0, 1.0), 1.0); }\n";
+	const GLuint ofs = a4k_shader(GL_FRAGMENT_SHADER, out_src, "output");
+	if (!ofs)
+		return 0;
+	static const char *const main_name[1] = { "MAIN" };
+	a4k_out_prog = a4k_link(vs, ofs, 1, main_name);
+	static const float tri[6] = { -1, -1, 3, -1, -1, 3 };	/* one triangle covers the viewport */
+	glGenVertexArrays(1, &a4k_vao);
+	glBindVertexArray(a4k_vao);
+	glGenBuffers(1, &a4k_vbo);
+	glBindBuffer(GL_ARRAY_BUFFER, a4k_vbo);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(tri), tri, GL_STATIC_DRAW);
+	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 8, (void *)0);
+	glEnableVertexAttribArray(0);
+	glGenFramebuffers(1, &a4k_fbo);
+	a4k_state = 1;
+	printf("video: Anime4K picture enlargement ready (%d passes, %.0f ms)\n", A4K_PASSES,
+		   (double)(clock() - t0) * 1000.0 / CLOCKS_PER_SEC);
+	return 1;
+}
+
+static GLuint a4k_texture(int w, int h, GLenum fmt, GLint filter, const void *rgba)
+{
+	GLuint t;
+	glGenTextures(1, &t);
+	glBindTexture(GL_TEXTURE_2D, t);
+	glTexImage2D(GL_TEXTURE_2D, 0, (GLint)fmt, w, h, 0, GL_RGBA, fmt == GL_RGBA16F ? GL_HALF_FLOAT : GL_UNSIGNED_BYTE, rgba);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	return t;
+}
+
+/* the opaque picture rgba (w x h) enlarged 2^runs times into texture id (replaced; 0: a new one),
+   RGBA8; 0 when Anime4K is off or failed (id is then left alone) */
+unsigned gl_a4k_upscale(unsigned id, u32 w, u32 h, const u32 *rgba, int runs)
+{
+	if (runs < 1 || !a4k_ready())
+		return 0;
+	state_invalidate();
+	/* the frame's state, put back at the end */
+	GLint draw_fb, read_fb, viewport[4], active, unit_tex[16];
+	GLboolean mask[4];
+	glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &draw_fb);
+	glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &read_fb);
+	glGetIntegerv(GL_VIEWPORT, viewport);
+	glGetIntegerv(GL_ACTIVE_TEXTURE, &active);
+	glGetBooleanv(GL_COLOR_WRITEMASK, mask);
+	for (int i = 0; i < 16; i++)
+	{
+		glActiveTexture(GL_TEXTURE0 + i);
+		glGetIntegerv(GL_TEXTURE_BINDING_2D, &unit_tex[i]);
+	}
+	const GLboolean depth = glIsEnabled(GL_DEPTH_TEST), blend = glIsEnabled(GL_BLEND), stencil = glIsEnabled(GL_STENCIL_TEST),
+					cull = glIsEnabled(GL_CULL_FACE), scissor = glIsEnabled(GL_SCISSOR_TEST);
+	glDisable(GL_DEPTH_TEST);
+	glDisable(GL_BLEND);
+	glDisable(GL_STENCIL_TEST);
+	glDisable(GL_CULL_FACE);
+	glDisable(GL_SCISSOR_TEST);
+	glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+	glBindVertexArray(a4k_vao);
+	glBindFramebuffer(GL_FRAMEBUFFER, a4k_fbo);
+
+	/* the textures by name: MAIN and what the passes save */
+	enum { MAXTEX = 40 };
+	const char *name[MAXTEX];
+	GLuint tex[MAXTEX];
+	int ntex = 1, mw = (int)w, mh = (int)h;
+	name[0] = "MAIN";
+	tex[0] = a4k_texture(mw, mh, GL_RGBA8, GL_LINEAR, rgba);
+	for (int r = 0; r < runs; r++)
+		for (int i = 0; i < A4K_PASSES; i++)
+		{
+			const A4kPass *ps = &a4k_passes[i];
+			const int ow = ps->x2 ? mw * 2 : mw, oh = ps->x2 ? mh * 2 : mh;
+			const GLuint out = a4k_texture(ow, oh, GL_RGBA16F, ps->x2 ? GL_LINEAR : GL_NEAREST, 0);
+			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, out, 0);
+			glViewport(0, 0, ow, oh);
+			glUseProgram(a4k_prog[i]);
+			for (int b = 0; b < ps->nbind; b++)
+			{
+				GLuint t = 0;
+				for (int k = 0; k < ntex; k++)
+					if (!strcmp(name[k], ps->bind[b]))
+						t = tex[k];
+				glActiveTexture(GL_TEXTURE0 + b);
+				glBindTexture(GL_TEXTURE_2D, t);
+			}
+			glDrawArrays(GL_TRIANGLES, 0, 3);
+			int k = 0;	/* saved under its name, in place of the earlier one */
+			while (k < ntex && strcmp(name[k], ps->save))
+				k++;
+			if (k < ntex)
+				glDeleteTextures(1, &tex[k]);
+			else if (ntex < MAXTEX)
+				ntex++;
+			name[k] = ps->save;
+			tex[k] = out;
+			if (ps->x2)
+				mw = ow, mh = oh;
+		}
+	/* MAIN into the picture's texture: colour clamped, opaque */
+	const GLuint old = id;
+	if (id)
+		glDeleteTextures(1, &id);
+	id = a4k_texture(mw, mh, GL_RGBA8, GL_LINEAR, 0);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, id, 0);
+	glViewport(0, 0, mw, mh);
+	glUseProgram(a4k_out_prog);
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, tex[0]);
+	glDrawArrays(GL_TRIANGLES, 0, 3);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
+	for (int k = 0; k < ntex; k++)
+		glDeleteTextures(1, &tex[k]);
+
+	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, (GLuint)draw_fb);
+	glBindFramebuffer(GL_READ_FRAMEBUFFER, (GLuint)read_fb);
+	glViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
+	glColorMask(mask[0], mask[1], mask[2], mask[3]);
+	for (int i = 0; i < 16; i++)
+	{
+		glActiveTexture(GL_TEXTURE0 + i);
+		glBindTexture(GL_TEXTURE_2D, old && (GLuint)unit_tex[i] == old ? 0 : (GLuint)unit_tex[i]);	/* not a deleted name */
+	}
+	glActiveTexture((GLenum)active);
+	glUseProgram(prog);
+	glBindVertexArray(vao);
+	glBindBuffer(GL_ARRAY_BUFFER, vbo);
+	if (depth) glEnable(GL_DEPTH_TEST);
+	if (blend) glEnable(GL_BLEND);
+	if (stencil) glEnable(GL_STENCIL_TEST);
+	if (cull) glEnable(GL_CULL_FACE);
+	if (scissor) glEnable(GL_SCISSOR_TEST);
 	return id;
 }
 
@@ -1267,7 +1501,7 @@ static void state_for(const TaPoly *p, int list, PolyState *s)
 	   shapes stay the same size with smooth edges; punch-through then keeps texels at least half
 	   opaque, as the filtered edges fall between the two. M1_SMOOTH2D=0 ([video] text = sharp):
 	   off. */
-	const int smooth = !video_text_sharp();
+	const int smooth = !video_text_sharp(), pictures = video_portraits();	/* [video] portraits: Anime4K (tex.c) */
 	int hi = 1;
 	unsigned rep;
 	if ((rep = tex_get_rep(p->tcw, tsp)))
@@ -1275,9 +1509,9 @@ static void state_for(const TaPoly *p, int list, PolyState *s)
 		s->tex = rep;	/* replacement art (tex.c) */
 		filt = GL_LINEAR;
 	}
-	else if (smooth && tgt_w == 640 && vp_h > 600 && p->cls >= M1_2D_HUD && p->cls <= M1_2D_SCREEN)
+	else if ((smooth || pictures) && tgt_w == 640 && vp_h > 600 && p->cls >= M1_2D_HUD && p->cls <= M1_2D_SCREEN)
 	{
-		s->tex = tex_get_hi(p->tcw, tsp, &hi);
+		s->tex = tex_get_hi(p->tcw, tsp, &hi, smooth, pictures);
 		if (hi > 1)
 		{
 			filt = GL_LINEAR;
@@ -1639,6 +1873,26 @@ void video_next_text(void)
 	config_set("video", "text", text_sharp ? "sharp" : "smooth");
 	config_save();
 	setting_env("M1_SMOOTH2D", text_sharp ? "0" : "1");
+	tex_hi_reset();
+}
+
+/* [video] portraits (M1_A4K=0: off): opaque 2D pictures, the character select portraits,
+   enlarged by Anime4K (a4k_upscale) instead of the cubic enlargement or the original pixels */
+static int portraits = -1;
+int video_portraits(void)
+{
+	if (portraits < 0)
+		portraits = !getenv("M1_A4K") || atoi(getenv("M1_A4K")) != 0;
+	return portraits;
+}
+
+void video_next_portraits(void)
+{
+	portraits = !video_portraits();
+	config_set("video", "portraits", portraits ? "1" : "0");
+	config_save();
+	setting_env("M1_A4K", portraits ? "1" : "0");
+	tex_hi_reset();
 }
 
 static float side_anchor(float cx)
@@ -1812,16 +2066,21 @@ static void dump_list(TaCtx *c)
 	}
 	if (getenv("M1_TEXDUMP"))
 	{
-		/* M1_TEXDUMP=tcw: that texture as decoded now (tex.c), tex_dump.ppm */
+		/* M1_TEXDUMP=tcw: that texture as decoded now (tex.c), tex_dump.ppm;
+		   M1_TEXDUMP=all: every texture of the render, tex_<tcw>.ppm and tex_<tcw>_alpha.pgm */
+		const int all = !strcmp(getenv("M1_TEXDUMP"), "all");
 		const u32 want_tcw = (u32)strtoul(getenv("M1_TEXDUMP"), 0, 16);
 		for (u32 i = 0; i < c->np; i++)
-			if (c->p[i].tcw == want_tcw)
+			if (all ? c->p[i].tcw != 0 : c->p[i].tcw == want_tcw)
 			{
 				u32 tw, th;
 				static u32 px[1024 * 1024];
 				u32 tex_decode_rgba(u32 tcw, u32 tsp, u32 *out, u32 *w, u32 *h);
-				tex_decode_rgba(want_tcw, c->p[i].tsp, px, &tw, &th);
-				FILE *tf = fopen("tex_dump.ppm", "wb");
+				tex_decode_rgba(c->p[i].tcw, c->p[i].tsp, px, &tw, &th);
+				char tn[64], an[64];
+				snprintf(tn, sizeof(tn), all ? "tex_%08x.ppm" : "tex_dump.ppm", c->p[i].tcw);
+				snprintf(an, sizeof(an), all ? "tex_%08x_alpha.pgm" : "tex_alpha.pgm", c->p[i].tcw);
+				FILE *tf = fopen(tn, "wb");
 				fprintf(tf, "P6\n%u %u\n255\n", tw, th);
 				for (u32 k = 0; k < tw * th; k++)
 				{
@@ -1830,13 +2089,14 @@ static void dump_list(TaCtx *c)
 					fwrite(rgb, 1, 3, tf);
 				}
 				fclose(tf);
-				tf = fopen("tex_alpha.pgm", "wb");
+				tf = fopen(an, "wb");
 				fprintf(tf, "P5\n%u %u\n255\n", tw, th);
 				for (u32 k = 0; k < tw * th; k++)
 					fputc((int)(px[k] >> 24), tf);
 				fclose(tf);
 				printf("texdump: PT_ALPHA_REF %08x PAL_RAM_CTRL %08x\n", hw_reg(0x005f811c), hw_reg(0x005f8108));
-				break;
+				if (!all)
+					break;
 			}
 	}
 	{

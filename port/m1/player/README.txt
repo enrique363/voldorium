@@ -117,6 +117,10 @@ Text: menu and HUD text is drawn from upscaled copies of the game's font texture
 its size with smooth edges at high resolutions. [video] text = sharp draws it as the original
 pixels instead.
 
+High-res portraits: the character select portraits are enlarged in detail on your graphics
+card by Anime4K (MIT licence, github.com/bloc97/Anime4K), a small neural network made for
+drawn art. GRAPHICS, MORE SETTINGS, HI-RES PORTRAITS (or [video] portraits = 0) turns it off.
+
 HD art: the textures folder holds new, high resolution art that the game's textures are drawn
 with instead: the HIGH / MID / S-MID / LOW and "!" labels shown at a hit in Practice
 (textures/replace.txt lists each piece; delete the folder for the original pictures).
@@ -168,6 +172,7 @@ marked * are also in the game (GRAPHICS). Edit it while the game is closed.
          backgrounds * stretch, blur, black or replace (see 16:9 pictures)
          hud *        4:3, middle or edges
          text *       smooth or sharp
+         portraits *  1 (high-res portraits, default) or 0
          vsync *      1 on, 0 off (see VSync)
 [audio]  enabled      0: no sound at all
          volume *     percent, 0 to 200

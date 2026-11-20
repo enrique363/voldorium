@@ -192,6 +192,8 @@ typedef struct
 	int hi_volatile;			/* changes too often to upscale: an animation, drawn plain */
 	u32 hi_count;				/* upscales since hi_since */
 	u64 hi_since;				/* render count */
+	int hi_picture;				/* the last upscale was an opaque picture (Anime4K, render.c) */
+	int hi_plain;				/* not upscaled under the current settings: drawn plain */
 	unsigned rep_id;			/* with replacement art (tex_get_rep), 0: none */
 	u64 rep_key;				/* the contents rep_id was made for (hash ^ pal_hash), 0: not checked */
 } TexEntry;
@@ -305,7 +307,7 @@ static TexEntry *lookup(u32 tcw, u32 tsp)
 	e->id = gl_upload_texture(e->used ? e->id : 0, w, hh, buf);
 	tex_decode_ms += (double)(clock() - td0) * 1000.0 / CLOCKS_PER_SEC;	/* M1_PERF=slow */
 	if (!e->used || e->tcw != tcw || e->size != size)
-		e->hi_volatile = 0, e->hi_count = 0;	/* another texture in this slot */
+		e->hi_volatile = 0, e->hi_count = 0, e->hi_picture = 0, e->hi_plain = 0;	/* another texture in this slot */
 	e->used = 1;
 	e->tcw = tcw;
 	e->size = size;
@@ -419,17 +421,26 @@ static void upscale(const u32 *src, u32 w, u32 h, u32 k, u32 *dst)
 	}
 }
 
+/* the GRAPHICS menu changed TEXT or HI-RES PORTRAITS: every upscaled copy is made again */
+void tex_hi_reset(void)
+{
+	for (int i = 0; i < NTEX; i++)
+		cache[i].hi_ok = 0, cache[i].hi_volatile = 0, cache[i].hi_count = 0;
+}
+
 /* the texture upscaled (4x up to 256 texels, 2x up to 512) for 2D drawn with bilinear
    filtering at high resolutions (render.c: text and HUD); *scale = the factor,
-   1 when the texture is too large (then it is the plain one) */
-unsigned tex_get_hi(u32 tcw, u32 tsp, int *scale)
+   1 when the texture is too large (then it is the plain one). text: [video] text = smooth
+   (the cubic enlargement), pictures: [video] portraits = 1 (opaque pictures by Anime4K);
+   what neither covers is drawn plain */
+unsigned tex_get_hi(u32 tcw, u32 tsp, int *scale, int text, int pictures)
 {
 	TexEntry *e = lookup(tcw, tsp);
 	const u32 w = 8u << ((tsp >> 3) & 7), h = (tcw >> 31) ? w : 8u << (tsp & 7);
 	const u32 big = w > h ? w : h;
 	const int k = big <= 256 ? 4 : big <= 512 ? 2 : 1;
 	*scale = k;
-	if (k == 1 || e->hi_volatile)
+	if (k == 1 || e->hi_volatile || (e->hi_ok && e->hi_plain))
 	{
 		*scale = 1;
 		return e->id;
@@ -437,12 +448,14 @@ unsigned tex_get_hi(u32 tcw, u32 tsp, int *scale)
 	if (!e->hi_ok)
 	{
 		/* a texture rewritten every few frames (animated surfaces, palette cycling) is not
-		   text: more than 6 upscales within 300 renders and it stays plain */
+		   text: more than 6 upscales within 300 renders and it stays plain. A picture gets 20:
+		   the select screen's large portrait is the same texture loaded again at each move of
+		   the cursor */
 		u64 render_count(void);
 		const u64 now = render_count();
 		if (now - e->hi_since > 300)
 			e->hi_since = now, e->hi_count = 0;
-		if (++e->hi_count > 6)
+		if (++e->hi_count > (e->hi_picture ? 20u : 6u))
 		{
 			e->hi_volatile = 1;
 			*scale = 1;
@@ -459,8 +472,21 @@ unsigned tex_get_hi(u32 tcw, u32 tsp, int *scale)
 			log = getenv("M1_HILOG") != 0;
 		const clock_t t0 = log ? clock() : 0;
 		decode(tcw, w, h, a);
-		upscale(a, w, h, (u32)k, b);
-		e->hi_id = gl_upload_texture(e->hi_id, w * k, h * k, b);
+		/* an opaque picture (the character select portraits): Anime4K on the GPU (render.c) */
+		int opaque = 1;
+		for (u32 i = 0; i < w * h && opaque; i++)
+			opaque = a[i] >> 24 == 255;
+		unsigned gl_a4k_upscale(unsigned id, u32 w, u32 h, const u32 *rgba, int runs);
+		const unsigned nn = opaque && pictures ? gl_a4k_upscale(e->hi_id, w, h, a, k == 4 ? 2 : 1) : 0;
+		e->hi_picture = nn != 0;
+		e->hi_plain = !nn && !text;
+		if (nn)
+			e->hi_id = nn;
+		else if (!e->hi_plain)
+		{
+			upscale(a, w, h, (u32)k, b);
+			e->hi_id = gl_upload_texture(e->hi_id, w * k, h * k, b);
+		}
 		if (log)
 		{
 			u64 render_count(void);
@@ -468,6 +494,11 @@ unsigned tex_get_hi(u32 tcw, u32 tsp, int *scale)
 				   (double)(clock() - t0) * 1000.0 / CLOCKS_PER_SEC);
 		}
 		e->hi_ok = 1;
+		if (e->hi_plain)
+		{
+			*scale = 1;
+			return e->id;
+		}
 	}
 	return e->hi_id;
 }
