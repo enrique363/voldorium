@@ -27,6 +27,12 @@ All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); 
   colour is enlarged by Anime4K, and with anti-aliasing on, the outlines are antialiased.
   GRAPHICS, MORE SETTINGS, TEXT now cycles HI-RES (default), ORIGINAL (the smooth text of
   earlier versions, lighter for slower graphics; `[video] fonts = 0`) and SHARP.
+- **Hi-res text and pictures are chosen for your graphics card at the first start**: they are
+  meant for PCs with a dedicated graphics card. On the Steam Deck, on integrated graphics (most
+  laptops) and on cards too slow for a short Anime4K test, the first start sets HI-RES PICTURES
+  OFF and TEXT ORIGINAL, which we recommend there (each new menu or loading screen would pause
+  while its pictures are enlarged); elsewhere both are on. The choice is written into
+  `voldorium.ini` once and never changed again; the GRAPHICS menu changes it any time.
 
 ### Changed
 - **No more slowdown when Inferno explodes** (enrique363/voldorium#11, enrique363/voldorium#19):

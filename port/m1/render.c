@@ -282,6 +282,7 @@ int video_text_sharp(void);
 int video_text_mode(void);
 int video_portraits(void);
 static int a4k_ready(void);	/* Anime4K picture enlargement (below) */
+static void auto_quality(void);	/* first start: HI-RES PICTURES and TEXT for the graphics card (below) */
 
 static void video_settings_load(void)
 {
@@ -1000,6 +1001,7 @@ int video_enabled(void)
 	glVertexAttribPointer(3, GL_BGRA, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(TaVert), (void *)24);
 	for (int i = 0; i < 4; i++)
 		glEnableVertexAttribArray(i);
+	auto_quality();	/* first start: HI-RES PICTURES and TEXT for this graphics card */
 	/* Anime4K's shaders are compiled now, not at the first picture (half a second) */
 	if ((video_portraits() || video_text_mode() == 0) && a4k_ready())
 	{
@@ -1982,6 +1984,118 @@ void video_next_portraits(void)
 	config_save();
 	setting_env("M1_A4K", portraits ? "1" : "0");
 	tex_hi_reset();
+}
+
+/* ---- first start: HI-RES PICTURES and TEXT HI-RES for the graphics card ----------------------
+ * Both are made for a dedicated graphics card: each picture or font is enlarged once, when it
+ * appears, which on integrated graphics (laptops, the Steam Deck) means a pause at each menu or
+ * loading screen. When voldorium.ini does not say ([video] portraits, fonts; also not set in the
+ * environment), they are chosen here once and written there, so the GRAPHICS menu shows them
+ * and the player's own choice is never changed:
+ *   off on the Steam Deck (its GPU, VANGOGH; Valve's board on Linux), integrated graphics by
+ *   name (Intel apart from Arc A and B cards, AMD's "Radeon Graphics" and Vega APUs, software
+ *   drivers), and when Anime4K takes over 40 ms on a 256x256 picture enlarged 4 times (10 ms
+ *   on an RTX 4060: a card a quarter as fast still pauses only about 0.2 s per background);
+ *   else on. M1_AUTOHW=deck|igpu|slow|fast (tests): that result. */
+static int has(const char *s, const char *what) { return s && strstr(s, what) != 0; }
+
+static const char *weak_by_name(const char *r)
+{
+	if (getenv("SteamDeck") && atoi(getenv("SteamDeck")))
+		return "Steam Deck";
+	if (has(r, "VANGOGH") || has(r, "Custom GPU 0405") || has(r, "Custom GPU 0932"))
+		return "Steam Deck";
+#ifndef _WIN32
+	{
+		char vendor[64] = "";
+		FILE *f = fopen("/sys/devices/virtual/dmi/id/board_vendor", "r");
+		if (f)
+		{
+			if (!fgets(vendor, sizeof(vendor), f))
+				vendor[0] = 0;
+			fclose(f);
+		}
+		if (!strncmp(vendor, "Valve", 5))
+			return "Steam Deck";
+	}
+#endif
+	if (has(r, "llvmpipe") || has(r, "softpipe") || has(r, "SwiftShader") || has(r, "Basic Render") || has(r, "GDI Generic"))
+		return "software drawing";
+	if ((has(r, "Intel") || has(r, "INTEL")) && !has(r, "Arc(TM) A") && !has(r, "Arc(TM) B") && !has(r, "Arc A") && !has(r, "Arc B"))
+		return "integrated graphics";
+	static const char *const apu[] = { "Radeon(TM) Graphics", "Radeon Graphics", "Vega", "RENOIR", "CEZANNE", "LUCIENNE",
+									   "BARCELO", "REMBRANDT", "PHOENIX", "RAVEN", "PICASSO", "MENDOCINO", "RAPHAEL",
+									   "STONEY", "CARRIZO", "GFX1103", "GFX1150", "780M", "760M", "740M", "680M", "660M",
+									   "880M", "890M", "860M", "610M" };
+	for (unsigned i = 0; i < sizeof(apu) / sizeof(apu[0]); i++)
+		if (has(r, apu[i]) && !has(r, " RX "))
+			return "integrated graphics";
+	return 0;
+}
+
+/* Anime4K's time on a 256x256 picture enlarged 4 times, in ms (the second of two runs: the
+   first can include the driver's own preparation) */
+static double a4k_bench(void)
+{
+	unsigned gl_a4k_upscale(unsigned id, u32 w, u32 h, const u32 *rgba, int runs, const u8 *alpha, const u32 *orig);
+	if (!a4k_ready())
+		return 1e9;
+	static u32 pic[256 * 256];
+	for (u32 y = 0; y < 256; y++)
+		for (u32 x = 0; x < 256; x++)
+			pic[y * 256 + x] = 0xff000000u | ((x ^ y) & 255) | (((x * 3 + y) & 255) << 8) | (((y * 5) & 255) << 16);
+	double ms = 1e9;
+	for (int run = 0; run < 2; run++)
+	{
+		glFinish();
+		const Uint64 t0 = SDL_GetPerformanceCounter();
+		const unsigned id = gl_a4k_upscale(0, 256, 256, pic, 2, 0, 0);
+		glFinish();
+		ms = (double)(SDL_GetPerformanceCounter() - t0) * 1000.0 / (double)SDL_GetPerformanceFrequency();
+		if (!id)
+			return 1e9;
+		GLuint t = id;
+		glDeleteTextures(1, &t);
+	}
+	return ms;
+}
+
+static void auto_quality(void)
+{
+	const int pick_pictures = !config_get("video", "portraits") && !getenv("M1_A4K");
+	const int pick_fonts = !config_get("video", "fonts") && !getenv("M1_HIFONTS") && video_text_mode() != 2;
+	if (!pick_pictures && !pick_fonts)
+		return;
+	const char *r = (const char *)glGetString(GL_RENDERER);
+	const char *test = getenv("M1_AUTOHW");
+	const char *why = test ? (!strcmp(test, "deck") ? "Steam Deck" : !strcmp(test, "igpu") ? "integrated graphics" : 0) : weak_by_name(r);
+	char because[96];
+	if (why)
+		snprintf(because, sizeof(because), "%s", why);
+	else
+	{
+		const double ms = test && !strcmp(test, "slow") ? 99 : test && !strcmp(test, "fast") ? 1 : a4k_bench();
+		snprintf(because, sizeof(because), "Anime4K %.0f ms on a test picture", ms);
+		if (ms > 40)
+			why = because;
+	}
+	const int on = !why;
+	if (pick_pictures)
+	{
+		portraits = on;
+		config_set("video", "portraits", on ? "1" : "0");
+		setting_env("M1_A4K", on ? "1" : "0");
+	}
+	if (pick_fonts)
+	{
+		text_mode = on ? 0 : 1;
+		config_set("video", "fonts", on ? "1" : "0");
+		setting_env("M1_HIFONTS", on ? "1" : "0");
+	}
+	config_save();
+	printf("video: first start on %s (%s): %s%s%s, change them in GRAPHICS, MORE SETTINGS\n", r ? r : "?", because,
+		   pick_pictures ? (on ? "HI-RES PICTURES ON" : "HI-RES PICTURES OFF") : "", pick_pictures && pick_fonts ? ", " : "",
+		   pick_fonts ? (on ? "TEXT HI-RES" : "TEXT ORIGINAL") : "");
 }
 
 static float side_anchor(float cx)

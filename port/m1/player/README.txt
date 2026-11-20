@@ -95,7 +95,8 @@ Deck, start voldorium once in Desktop Mode (the first start builds the game; Ste
 comes with Python and kdialog, but this is not yet tested on a real Deck), then Steam > Games > Add a Non-Steam Game to My Library > voldorium. Windows: add
 Voldorium.exe the same way, and in its Properties > Compatibility force a recent Proton. Online
 Versus works between Deck, Linux and Windows players of the same version. The 1280x800 screen
-shows the game in 16:10, filling it.
+shows the game in 16:10, filling it. Recommended there: TEXT ORIGINAL and HI-RES PICTURES OFF
+(GRAPHICS, MORE SETTINGS; the first start sets them so, see Which hardware).
 
 Memory card
 -----------
@@ -121,10 +122,18 @@ HI-RES (that, the default), ORIGINAL (the smooth text of earlier versions: light
 graphics; [video] fonts = 0) or SHARP (the original pixels; [video] text = sharp).
 
 High-res pictures: the character select portraits and the menu and loading screen pictures
-(backgrounds, the VS screen's portraits) are enlarged in detail on your graphics card by Anime4K (MIT licence, github.com/bloc97/Anime4K), a small
-neural network made for drawn art. A background is enlarged as one picture when it appears
-(a fraction of a second, once). GRAPHICS, MORE SETTINGS, HI-RES PICTURES (or [video]
-portraits = 0) turns it off.
+(backgrounds, the VS screen's portraits) are enlarged in detail on your graphics card by
+Anime4K (MIT licence, github.com/bloc97/Anime4K), a small neural network made for drawn art.
+A background is enlarged as one picture when it appears (a fraction of a second, once).
+GRAPHICS, MORE SETTINGS, HI-RES PICTURES (or [video] portraits = 0) turns it off.
+
+Which hardware: hi-res text and high-res pictures are meant for PCs with a dedicated graphics
+card. On integrated graphics (most laptops) and the Steam Deck, each new menu or loading
+screen would pause while its pictures are enlarged, so play there with HI-RES PICTURES OFF and
+TEXT ORIGINAL (recommended). The first start chooses for you: both off on the Steam Deck, on
+integrated graphics and on graphics cards too slow for a short test, on elsewhere. It writes
+them into voldorium.ini ([video] portraits and fonts) and never changes them again; the
+GRAPHICS menu does, any time.
 
 HD art: the textures folder holds new, high resolution art that the game's textures are drawn
 with instead: the HIGH / MID / S-MID / LOW and "!" labels shown at a hit in Practice
@@ -177,8 +186,9 @@ marked * are also in the game (GRAPHICS). Edit it while the game is closed.
          backgrounds * stretch, blur, black or replace (see 16:9 pictures)
          hud *        4:3, middle or edges
          text *       smooth or sharp
-         fonts *      1 (hi-res smooth text, default) or 0 (original, lighter)
-         portraits *  1 (high-res pictures, default) or 0
+         fonts *      1 (hi-res smooth text) or 0 (original, lighter); first start: chosen
+                      for your graphics card (see Which hardware)
+         portraits *  1 (high-res pictures) or 0; first start: as fonts
          vsync *      1 on, 0 off (see VSync)
 [audio]  enabled      0: no sound at all
          volume *     percent, 0 to 200

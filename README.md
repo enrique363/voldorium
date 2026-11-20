@@ -20,7 +20,15 @@ together with a small native runtime that stands in for the Dreamcast hardware. 
   curved outlines and crisp colour (Anime4K), antialiased under MSAA. The lighter ORIGINAL smooth
   text and SHARP pixels are in the GRAPHICS menu.
 - **High-res pictures**: the character select portraits and the menu and loading screen
-  pictures enlarged in detail on your GPU by Anime4K, a small neural network (GRAPHICS menu, HI-RES PICTURES).
+  pictures enlarged in detail on your GPU by Anime4K, a small neural network (GRAPHICS menu,
+  HI-RES PICTURES).
+
+  Hi-res text and high-res pictures are meant for PCs with a **dedicated graphics card**. Each
+  picture or font is enlarged once, when it appears; on integrated graphics (most laptops) and
+  the **Steam Deck** that means a pause at menus and loading screens, so we recommend playing
+  there with HI-RES PICTURES OFF and TEXT ORIGINAL. The first start picks this for you: off on
+  the Steam Deck, on integrated graphics and on graphics cards too slow for a quick test, on
+  elsewhere. It writes the result into `voldorium.ini`, and the GRAPHICS menu changes it.
 - New high resolution art for the hit level labels in Practice (`port/m1/textures`, drawn by
   `tools/hitlabels.py`).
 - **F12 takes a screenshot** (PNG at the full drawing size).
@@ -319,8 +327,8 @@ closed.
 | | `hud` | `4:3`, `middle`, `edges` | ✓ | Where the fight HUD sits in 16:9. Only your own screen, also online. |
 | | `backgrounds` | `stretch`, `blur`, `black`, `replace` | ✓ | How 4:3 menu and loading pictures fill 16:9 (`replace`: 16:9 art from the `art16x9` folder). The Mission Battle map and Art Gallery pictures are never stretched: `stretch` gives them blurred sides. |
 | | `text` | `smooth`, `sharp` | ✓ | Menu and HUD text upscaled with smooth edges, or the original pixels (menu TEXT SHARP). |
-| | `fonts` | `1`, `0` | ✓ | Smooth text in high resolution (curved outlines, Anime4K colour; menu TEXT HI-RES), or the lighter smooth text of earlier versions (TEXT ORIGINAL). |
-| | `portraits` | `1`, `0` | ✓ | Character select portraits, menu and loading screen pictures enlarged in detail by Anime4K on the GPU (menu HI-RES PICTURES), or as before. |
+| | `fonts` | `1`, `0` | ✓ | Smooth text in high resolution (curved outlines, Anime4K colour; menu TEXT HI-RES), or the lighter smooth text of earlier versions (TEXT ORIGINAL). Not set: chosen at the first start for your graphics card. |
+| | `portraits` | `1`, `0` | ✓ | Character select portraits, menu and loading screen pictures enlarged in detail by Anime4K on the GPU (menu HI-RES PICTURES), or as before. Not set: chosen at the first start for your graphics card. |
 | `[audio]` | `enabled` | `1`, `0` | | `0`: no sound at all. |
 | | `volume` | `0` to `200` | ✓ | Sound volume in percent (the menu steps 0, 25, 50, 75, 100). |
 | `[keys]` | `up down left right a b x y start l r` | SDL key names | | Keyboard controls (`Up`, `Z`, `Return`...). |
@@ -338,6 +346,10 @@ More detail is in `port/README.md` and in the README.txt of the player folder.
 
 **We recommend SteamOS with the Linux version on the Deck:** it performs best there.
 Online Versus matches Deck, Linux and Windows players of the same version.
+
+**Hi-res text and pictures:** on the Deck we recommend TEXT ORIGINAL and HI-RES PICTURES OFF
+(GRAPHICS, MORE SETTINGS); the first start sets them so. Turned on, each new menu or loading
+screen pauses while its pictures are enlarged.
 
 **Windows installed on the Deck is not supported.** Voldorium draws with OpenGL, and the
 Deck's Windows graphics driver adds a large fixed cost to every OpenGL frame, so fights stutter
