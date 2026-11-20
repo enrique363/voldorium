@@ -567,7 +567,7 @@ void tex_hi_reset(void)
 /* the texture upscaled (4x up to 256 texels, 2x up to 512) for 2D drawn with bilinear
    filtering at high resolutions (render.c: text and HUD); *scale = the factor,
    1 when the texture is too large (then it is the plain one). text: [video] text = smooth
-   (the cubic enlargement), pictures: [video] portraits = 1 (opaque pictures by Anime4K);
+   (the cubic enlargement; 2, TEXT HI-RES: cut-outs as below), pictures: [video] portraits = 1 (opaque pictures by Anime4K);
    what neither covers is drawn plain. *edge: a cut-out with a smooth outline (render.c draws
    its edge one screen pixel wide) */
 unsigned tex_get_hi(u32 tcw, u32 tsp, int *scale, int *edge, int text, int pictures)
@@ -625,7 +625,7 @@ unsigned tex_get_hi(u32 tcw, u32 tsp, int *scale, int *edge, int text, int pictu
 		e->hi_edge = 0;
 		if (opaque && pictures)
 			nn = gl_a4k_upscale(e->hi_id, w, h, a, runs, 0);
-		else if (cut && text)
+		else if (cut && text >= 2)	/* TEXT HI-RES */
 		{
 			static u8 *al;
 			if (!al)

@@ -1026,6 +1026,7 @@ void video_next_hud(void);
 int video_backgrounds(void);
 void video_next_backgrounds(void);
 int video_text_sharp(void);
+int video_text_mode(void);
 void video_next_text(void);
 int video_portraits(void);
 void video_next_portraits(void);
@@ -1046,7 +1047,8 @@ static void build_graphics(u32 cur)
 		static const char *const bg[4] = { "BACKGROUNDS BLUR", "BACKGROUNDS REPLACE", "BACKGROUNDS STRETCH", "BACKGROUNDS BLACK" };
 		line(loading_fast() ? "LOADING FAST" : "LOADING ORIGINAL", "Original: Dreamcast disc speed. Fast: instant.", V_G_LOADING, 1);
 		line(bg[video_backgrounds()], "4:3 pictures: stretched, blurred or black sides.", V_G_BG, 1);
-		line(video_text_sharp() ? "TEXT SHARP" : "TEXT SMOOTH", "Menu text: smooth edges, or original pixels.", V_G_TEXT, 1);
+		static const char *const text[3] = { "TEXT HI-RES", "TEXT ORIGINAL", "TEXT SHARP" };
+		line(text[video_text_mode()], "Hi-res, original (lighter), or sharp pixels.", V_G_TEXT, 1);
 		line(video_portraits() ? "HI-RES PORTRAITS ON" : "HI-RES PORTRAITS OFF", "Character select portraits enlarged in detail.", V_G_PORTRAITS, 1);
 		const int vol = audio_volume();
 		if (vol)
@@ -1328,14 +1330,19 @@ void online_menu(SH4 *c, void (*f)(SH4 *))
 			graphics_choose(V_G_RES);
 			graphics_choose(V_G_AA);
 		}
-		/* M1_LOBBY_TEST=graphics,portraits: MORE SETTINGS, then HI-RES PORTRAITS once */
+		/* M1_LOBBY_TEST=graphics,portraits: MORE SETTINGS, then HI-RES PORTRAITS once;
+		   graphics,text: TEXT instead, three times (a second apart) */
 		static int pcalls;
-		if (strstr(test, "portraits") && get32(cur) == 1 && ++pcalls == 120)
-			graphics_choose(V_G_MORE);
-		else if (strstr(test, "portraits") && pcalls == 240)
-			put32(cur + 4, 3);	/* the cursor onto it, then chosen */
-		else if (strstr(test, "portraits") && pcalls == 360)
-			graphics_choose(V_G_PORTRAITS);
+		const int text_line = strstr(test, "text") != 0;
+		if ((text_line || strstr(test, "portraits")) && get32(cur) == 1)
+		{
+			if (++pcalls == 120)
+				graphics_choose(V_G_MORE);
+			else if (pcalls == 240)
+				put32(cur + 4, text_line ? 2 : 3);	/* the cursor onto it, then chosen */
+			else if (pcalls == 360 || (text_line && (pcalls == 420 || pcalls == 480)))
+				graphics_choose(text_line ? V_G_TEXT : V_G_PORTRAITS);
+		}
 	}
 	else if (test && allowed && get32(cur) == 0 && ++test_calls == 60)
 	{

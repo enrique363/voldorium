@@ -16,8 +16,9 @@ together with a small native runtime that stands in for the Dreamcast hardware. 
 - **AMD FSR 1 upscaling**: ULTRA QUALITY, QUALITY, BALANCED and PERFORMANCE presets draw below
   native and upscale with sharp edges, for slower PCs and handhelds.
 - **Multisample anti-aliasing and VSync** (no tearing).
-- **Smooth text**: menu and HUD text drawn from enlarged copies of the game's font, with smooth
-  curved outlines and crisp colour (Anime4K), antialiased under MSAA.
+- **Hi-res text**: menu and HUD text drawn from enlarged copies of the game's font, with smooth
+  curved outlines and crisp colour (Anime4K), antialiased under MSAA. The lighter ORIGINAL smooth
+  text and SHARP pixels are in the GRAPHICS menu.
 - **High-res portraits**: the character select portraits enlarged in detail on your GPU by
   Anime4K, a small neural network (GRAPHICS menu, HI-RES PORTRAITS).
 - New high resolution art for the hit level labels in Practice (`port/m1/textures`, drawn by
@@ -260,7 +261,7 @@ Run `Voldorium.exe` from the player folder. The first time, it asks for your dis
 resolution; the main menu's **GRAPHICS** entry changes resolution, full screen,
 anti-aliasing, VSync and where the fight HUD sits (as in the original 4:3 game by default,
 halfway out, or at the screen's edges); its second page, **MORE SETTINGS**, has loading speed
-(original or fast), how 4:3 menu pictures fill 16:9, sharp or smooth text, high-res portraits
+(original or fast), how 4:3 menu pictures fill 16:9, hi-res, original or sharp text, high-res portraits
 on or off, and the sound volume.
 **F12** saves a screenshot (PNG, in the `screenshots` folder next to the game; Xbox Game Bar
 cannot capture the game's window). **EXIT GAME**, the last main menu entry, quits straight away. **Esc** quits too, when pressed
@@ -317,7 +318,8 @@ closed.
 | | `vsync` | `1`, `0` | ✓ | On: no tearing. Off: lowest input delay. |
 | | `hud` | `4:3`, `middle`, `edges` | ✓ | Where the fight HUD sits in 16:9. Only your own screen, also online. |
 | | `backgrounds` | `stretch`, `blur`, `black`, `replace` | ✓ | How 4:3 menu and loading pictures fill 16:9 (`replace`: 16:9 art from the `art16x9` folder). The Mission Battle map and Art Gallery pictures are never stretched: `stretch` gives them blurred sides. |
-| | `text` | `smooth`, `sharp` | ✓ | Menu and HUD text upscaled with smooth edges, or the original pixels. |
+| | `text` | `smooth`, `sharp` | ✓ | Menu and HUD text upscaled with smooth edges, or the original pixels (menu TEXT SHARP). |
+| | `fonts` | `1`, `0` | ✓ | Smooth text in high resolution (curved outlines, Anime4K colour; menu TEXT HI-RES), or the lighter smooth text of earlier versions (TEXT ORIGINAL). |
 | | `portraits` | `1`, `0` | ✓ | Character select portraits enlarged in detail by Anime4K on the GPU, or like the text. |
 | `[audio]` | `enabled` | `1`, `0` | | `0`: no sound at all. |
 | | `volume` | `0` to `200` | ✓ | Sound volume in percent (the menu steps 0, 25, 50, 75, 100). |

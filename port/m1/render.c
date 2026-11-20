@@ -279,6 +279,7 @@ static const int fsr_pcts[] = { 77, 67, 59, 50 };	/* FSR 1's ultra quality, qual
 void config_set(const char *section, const char *key, const char *value);
 void config_save(void);
 int video_text_sharp(void);
+int video_text_mode(void);
 int video_portraits(void);
 static int a4k_ready(void);	/* Anime4K picture enlargement (below) */
 
@@ -1000,7 +1001,7 @@ int video_enabled(void)
 	for (int i = 0; i < 4; i++)
 		glEnableVertexAttribArray(i);
 	/* Anime4K's shaders are compiled now, not at the first picture (half a second) */
-	if ((video_portraits() || !video_text_sharp()) && a4k_ready())
+	if ((video_portraits() || video_text_mode() == 0) && a4k_ready())
 	{
 		glUseProgram(prog);
 		glBindVertexArray(vao);
@@ -1532,7 +1533,7 @@ static void state_for(const TaPoly *p, int list, PolyState *s)
 	   shapes stay the same size with smooth edges; punch-through then keeps texels at least half
 	   opaque, as the filtered edges fall between the two. M1_SMOOTH2D=0 ([video] text = sharp):
 	   off. */
-	const int smooth = !video_text_sharp(), pictures = video_portraits();	/* [video] portraits: Anime4K (tex.c) */
+	const int tm = video_text_mode(), smooth = tm < 2 ? 2 - tm : 0, pictures = video_portraits();	/* smooth: 2 HI-RES, 1 SMOOTH; pictures: [video] portraits (tex.c) */
 	int hi = 1;
 	unsigned rep;
 	if ((rep = tex_get_rep(p->tcw, tsp)))
@@ -1901,21 +1902,29 @@ void video_next_backgrounds(void)
 	setting_env("M1_BGMODE", names[bg_mode]);
 }
 
-/* [video] text (M1_SMOOTH2D=0: sharp): 2D text from the original pixels instead of upscaled */
-static int text_sharp = -1;
-int video_text_sharp(void)
+/* 2D text, the GRAPHICS menu's TEXT line: 0 HI-RES (enlarged with curved outlines and Anime4K
+   colour, tex.c cut-outs), 1 ORIGINAL (the smooth text before 1.2.2, the cubic enlargement
+   alone: lighter, for slower graphics), 2 SHARP (the original pixels). [video] text = smooth
+   with fonts = 1 (default) or 0, or text = sharp; M1_SMOOTH2D=0: sharp, M1_HIFONTS=0: smooth */
+static int text_mode = -1;
+int video_text_mode(void)
 {
-	if (text_sharp < 0)
-		text_sharp = getenv("M1_SMOOTH2D") && !atoi(getenv("M1_SMOOTH2D"));
-	return text_sharp;
+	if (text_mode < 0)
+		text_mode = getenv("M1_SMOOTH2D") && !atoi(getenv("M1_SMOOTH2D")) ? 2
+				  : getenv("M1_HIFONTS") && !atoi(getenv("M1_HIFONTS")) ? 1 : 0;
+	return text_mode;
 }
+int video_text_sharp(void) { return video_text_mode() == 2; }
 
 void video_next_text(void)
 {
-	text_sharp = !video_text_sharp();
-	config_set("video", "text", text_sharp ? "sharp" : "smooth");
+	text_mode = (video_text_mode() + 1) % 3;
+	config_set("video", "text", text_mode == 2 ? "sharp" : "smooth");
+	if (text_mode < 2)
+		config_set("video", "fonts", text_mode ? "0" : "1");
 	config_save();
-	setting_env("M1_SMOOTH2D", text_sharp ? "0" : "1");
+	setting_env("M1_SMOOTH2D", text_mode == 2 ? "0" : "1");
+	setting_env("M1_HIFONTS", text_mode == 1 ? "0" : "1");
 	tex_hi_reset();
 }
 

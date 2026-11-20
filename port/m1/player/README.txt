@@ -116,8 +116,9 @@ the original picture centred at the same scale).
 Text: menu and HUD text is drawn from enlarged copies of the game's font textures, so it keeps
 its size at high resolutions: the letters' outlines follow their curves instead of the original
 pixels' steps, their colour is enlarged by Anime4K (see High-res portraits), and with
-anti-aliasing on, the outlines are antialiased too. [video] text = sharp draws the original
-pixels instead.
+anti-aliasing on, the outlines are antialiased too. GRAPHICS, MORE SETTINGS, TEXT chooses:
+HI-RES (that, the default), ORIGINAL (the smooth text of earlier versions: lighter, for slower
+graphics; [video] fonts = 0) or SHARP (the original pixels; [video] text = sharp).
 
 High-res portraits: the character select portraits are enlarged in detail on your graphics
 card by Anime4K (MIT licence, github.com/bloc97/Anime4K), a small neural network made for
@@ -174,6 +175,7 @@ marked * are also in the game (GRAPHICS). Edit it while the game is closed.
          backgrounds * stretch, blur, black or replace (see 16:9 pictures)
          hud *        4:3, middle or edges
          text *       smooth or sharp
+         fonts *      1 (hi-res smooth text, default) or 0 (original, lighter)
          portraits *  1 (high-res portraits, default) or 0
          vsync *      1 on, 0 off (see VSync)
 [audio]  enabled      0: no sound at all
