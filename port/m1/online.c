@@ -1049,7 +1049,7 @@ static void build_graphics(u32 cur)
 		line(bg[video_backgrounds()], "4:3 pictures: stretched, blurred or black sides.", V_G_BG, 1);
 		static const char *const text[3] = { "TEXT HI-RES", "TEXT ORIGINAL", "TEXT SHARP" };
 		line(text[video_text_mode()], "Hi-res, original (lighter), or sharp pixels.", V_G_TEXT, 1);
-		line(video_portraits() ? "HI-RES PICTURES ON" : "HI-RES PICTURES OFF", "Portraits and menu backgrounds in detail.", V_G_PORTRAITS, 1);
+		line(video_portraits() ? "HI-RES PICTURES ON" : "HI-RES PICTURES OFF", "Portraits, menus, loading screens in detail.", V_G_PORTRAITS, 1);
 		const int vol = audio_volume();
 		if (vol)
 			snprintf(l, sizeof(l), "VOLUME %d", vol);

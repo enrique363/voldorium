@@ -1505,6 +1505,10 @@ u64 render_count(void);
 static const TaPoly *hb_base;
 static u32 hb_n;
 static GLuint *hb_poly;
+#define HB_WAIT (~(GLuint)0)	/* hb_poly: a piece whose picture is not made yet */
+#define HB_PIC (~(GLuint)1)		/* hb_poly: a flat picture drawn by code with no 2D class, in front of
+								   the layer (the VS loading screen's portraits): enlarged like 2D */
+static u8 *bg_layer;	/* this frame's 4:3 background layer (side_fill) */
 
 static void state_for(const TaPoly *p, int list, PolyState *s)
 {
@@ -1560,13 +1564,19 @@ static void state_for(const TaPoly *p, int list, PolyState *s)
 		s->tex = rep;	/* replacement art (tex.c) */
 		filt = GL_LINEAR;
 	}
-	else if (hb_n && p >= hb_base && p < hb_base + hb_n && hb_poly[p - hb_base])
+	else if (hb_n && p >= hb_base && p < hb_base + hb_n && hb_poly[p - hb_base] == HB_WAIT)
+		s->tex = tex_get(p->tcw, tsp);
+	else if (hb_n && p >= hb_base && p < hb_base + hb_n && hb_poly[p - hb_base] && hb_poly[p - hb_base] != HB_PIC)
 	{
 		s->tex = hb_poly[p - hb_base];	/* a piece of the hi-res background (hibg_update) */
 		filt = GL_LINEAR;
 		hb = 1;
 	}
-	else if ((smooth || pictures) && tgt_w == 640 && vp_h > 600 && p->cls >= M1_2D_HUD && p->cls <= M1_2D_SCREEN)
+	else if ((smooth || pictures) && tgt_w == 640 && vp_h > 600 &&
+			 ((p->cls >= M1_2D_HUD && p->cls <= M1_2D_SCREEN) ||
+			  (hb_n && p >= hb_base && p < hb_base + hb_n && (bg_layer[p - hb_base] || hb_poly[p - hb_base] == HB_PIC))))
+		/* 2D, or a picture of a 4:3 background layer drawn by other code (the loading screens'
+		   portraits) */
 	{
 		int edge = 0;
 		s->tex = tex_get_hi(p->tcw, tsp, &hi, &edge, smooth, pictures);
@@ -2602,7 +2612,6 @@ static void draw_replacement(int id, const u8 *rgba, u32 w, u32 h)
 	 blur	 the blur fill only
 	 black	 nothing: black sides, as on a 16:9 TV (issue #15)
    M1_BLURFILL=0 turns the blur fill off. */
-static u8 *bg_layer;
 
 /* ---- hi-res backgrounds ----------------------------------------------------------------------
  * A 4:3 background (the layer side_fill finds: the main menu's is 70 tiles of 64x64) is
@@ -2612,7 +2621,7 @@ static u8 *bg_layer;
  * texture; others are drawn as they are. The picture is made again when the layer changes
  * (textures, contents, places: not colours), once it has stayed the same for 3 frames, so
  * nothing is enlarged while it moves. [video] portraits (HI-RES PICTURES) turns it on. */
-typedef struct { u32 tcw, tsp; float r[4]; GLuint tex; } HbTile;
+typedef struct { u32 tcw, tsp; float r[6]; GLuint tex; } HbTile;	/* r: x0 y0 x1 y1, the texture's u v shown */
 enum { HB_MAX = 512 };
 static HbTile hb_tiles[HB_MAX];
 static u32 hb_ntiles, hb_stable, hb_cap;
@@ -2620,8 +2629,10 @@ static u64 hb_sig, hb_built_sig;
 static int hb_runs;
 static GLuint hb_fbo[2];
 
-/* the screen rectangle of a flat textured quad showing its whole texture the right way round */
-static int hb_rect(const TaCtx *c, const TaPoly *p, float r[4])
+/* the screen rectangle of a flat textured quad showing its texture the right way round, from
+   its top left corner to u, v (r[4], r[5]: the whole texture or part of it, as the loading
+   screens' half-height bottom row) */
+static int hb_rect(const TaCtx *c, const TaPoly *p, float r[6])
 {
 	if (!((p->isp >> 25) & 1) || p->count != 4 || (p->list != 0 && p->list != 4))
 		return 0;
@@ -2631,14 +2642,20 @@ static int hb_rect(const TaCtx *c, const TaPoly *p, float r[4])
 		x0 = fminf(x0, v[k].x), x1 = fmaxf(x1, v[k].x), y0 = fminf(y0, v[k].y), y1 = fmaxf(y1, v[k].y);
 	if (x1 - x0 < 4 || y1 - y0 < 4 || x0 < -0.5f || y0 < -0.5f || x1 > 640.5f || y1 > 480.5f)
 		return 0;
+	float ue = -1, ve = -1;
+	for (int k = 0; k < 4; k++)
+		if (fabsf(v[k].x - x1) < 0.01f && fabsf(v[k].y - y1) < 0.01f)
+			ue = v[k].u, ve = v[k].v;
+	if (ue < 0.05f || ue > 1.001f || ve < 0.05f || ve > 1.001f)
+		return 0;
 	for (int k = 0; k < 4; k++)
 	{
 		const int left = fabsf(v[k].x - x0) < 0.01f, right = fabsf(v[k].x - x1) < 0.01f;
 		const int top = fabsf(v[k].y - y0) < 0.01f, bottom = fabsf(v[k].y - y1) < 0.01f;
-		if (!(left || right) || !(top || bottom) || fabsf(v[k].u - (float)right) > 0.002f || fabsf(v[k].v - (float)bottom) > 0.002f)
+		if (!(left || right) || !(top || bottom) || fabsf(v[k].u - (right ? ue : 0)) > 0.002f || fabsf(v[k].v - (bottom ? ve : 0)) > 0.002f)
 			return 0;
 	}
-	r[0] = x0, r[1] = y0, r[2] = x1, r[3] = y1;
+	r[0] = x0, r[1] = y0, r[2] = x1, r[3] = y1, r[4] = fminf(ue, 1), r[5] = fminf(ve, 1);
 	return 1;
 }
 
@@ -2664,7 +2681,7 @@ static void hibg_build(const TaCtx *c, const u8 *mask, int runs)
 	for (u32 i = 0; i < c->np && hb_ntiles < HB_MAX; i++)
 	{
 		const TaPoly *p = &c->p[i];
-		float r[4];
+		float r[6];
 		if (!mask[i] || !hb_rect(c, p, r))
 			continue;
 		int dup = 0;
@@ -2689,8 +2706,9 @@ static void hibg_build(const TaCtx *c, const u8 *mask, int runs)
 				const float cx = x + 0.5f, cy = y + 0.5f;
 				if (cx < r[0] || cx >= r[2] || cy < r[1] || cy >= r[3])
 					continue;
-				float fu = (cx - r[0]) / (r[2] - r[0]) * w - 0.5f, fv = (cy - r[1]) / (r[3] - r[1]) * h - 0.5f;
-				fu = fminf(fmaxf(fu, 0), w - 1.001f), fv = fminf(fmaxf(fv, 0), h - 1.001f);
+				const float uw = r[4] * w, vh = r[5] * h;	/* the texels shown */
+				float fu = (cx - r[0]) / (r[2] - r[0]) * uw - 0.5f, fv = (cy - r[1]) / (r[3] - r[1]) * vh - 0.5f;
+				fu = fminf(fmaxf(fu, 0), fmaxf(uw - 1.001f, 0)), fv = fminf(fmaxf(fv, 0), fmaxf(vh - 1.001f, 0));
 				const u32 u0 = (u32)fu, v0 = (u32)fv;
 				const float a = fu - u0, b = fv - v0;
 				const u32 *q = &px[v0 * w + u0];
@@ -2724,13 +2742,23 @@ static void hibg_build(const TaCtx *c, const u8 *mask, int runs)
 			HbTile *t = &hb_tiles[i];
 			const int sx0 = (int)lroundf(t->r[0] * k), sy0 = (int)lroundf(t->r[1] * k);
 			const int sx1 = (int)lroundf(t->r[2] * k), sy1 = (int)lroundf(t->r[3] * k);
+			/* the whole texture's size; the part not shown repeats the shown part's last texels,
+			   so filtering at its edge stays in the picture */
+			const int cw = sx1 - sx0, ch = sy1 - sy0;
+			const int tw = (int)lroundf(cw / t->r[4]), th = (int)lroundf(ch / t->r[5]);
 			glGenTextures(1, &t->tex);
 			glBindTexture(GL_TEXTURE_2D, t->tex);
-			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, sx1 - sx0, sy1 - sy0, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0);
+			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, tw, th, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0);
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 			glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, t->tex, 0);
-			glBlitFramebuffer(sx0, sy0, sx1, sy1, 0, 0, sx1 - sx0, sy1 - sy0, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+			glBlitFramebuffer(sx0, sy0, sx1, sy1, 0, 0, cw, ch, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+			if (th > ch)
+				glBlitFramebuffer(sx0, sy1 - 1, sx1, sy1, 0, ch, cw, th, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+			if (tw > cw)
+				glBlitFramebuffer(sx1 - 1, sy0, sx1, sy1, cw, 0, tw, ch, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+			if (tw > cw && th > ch)
+				glBlitFramebuffer(sx1 - 1, sy1 - 1, sx1, sy1, cw, ch, tw, th, GL_COLOR_BUFFER_BIT, GL_NEAREST);
 		}
 		glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
 		glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
@@ -2751,16 +2779,64 @@ static void hibg_update(const TaCtx *c, const u8 *mask)
 {
 	if (!video_portraits() || vp_h <= 600)
 		return;
+	{
+		/* M1_HILOG=1: each new layer's pieces (list, size, texture, uv), for new kinds of layers */
+		static int log = -1;
+		static u64 last;
+		if (log < 0)
+			log = getenv("M1_HILOG") != 0;
+		u64 all = 0xcbf29ce484222325ull;
+		for (u32 i = 0; i < c->np; i++)
+			if (mask[i])
+				all = (all ^ c->p[i].tcw ^ ((u64)c->p[i].tsp << 32)) * 0x100000001b3ull;
+		if (log && all != last)
+		{
+			last = all;
+			u32 m = 0;
+			for (u32 i = 0; i < c->np; i++)
+				m += mask[i];
+			printf("hibg: render %llu layer of %u polygons\n", (unsigned long long)render_count(), m);
+			for (u32 i = 0, shown = 0; i < c->np && shown < 12; i++)
+				if (mask[i])
+				{
+					const TaPoly *p = &c->p[i];
+					const TaVert *v = &c->v[p->first];
+					float r[6];
+					printf("  list %u n %u tcw %08x tsp %08x v0 %.1f,%.1f uv %.3f,%.3f v%u %.1f,%.1f uv %.3f,%.3f%s\n", p->list, p->count,
+						   p->tcw, p->tsp, v[0].x, v[0].y, v[0].u, v[0].v, p->count - 1, v[p->count - 1].x, v[p->count - 1].y,
+						   v[p->count - 1].u, v[p->count - 1].v, hb_rect(c, p, r) ? " piece" : "");
+					shown++;
+				}
+		}
+	}
+	/* every polygon of the layer may have its picture enlarged (state_for); pieces below */
+	if (c->np > hb_cap)
+		hb_poly = realloc(hb_poly, (hb_cap = c->np) * sizeof(GLuint));
+	memset(hb_poly, 0, c->np * sizeof(GLuint));
+	hb_base = c->p, hb_n = c->np;
+	for (u32 i = 0; i < c->np; i++)
+	{
+		const TaPoly *p = &c->p[i];
+		if (mask[i] || p->cls || !((p->isp >> 25) & 1) || p->list == 1 || p->list == 3 || p->count < 3)
+			continue;
+		const TaVert *v = &c->v[p->first];
+		int flat = 1;
+		for (u32 k = 1; k < p->count && flat; k++)
+			flat = v[k].z == v[0].z;
+		if (flat)
+			hb_poly[i] = HB_PIC;
+	}
 	u64 sig = 0xcbf29ce484222325ull;
 	u32 n = 0;
 	for (u32 i = 0; i < c->np; i++)
 	{
-		float r[4];
+		float r[6];
 		if (!mask[i] || !hb_rect(c, &c->p[i], r))
 			continue;
+		hb_poly[i] = HB_WAIT;	/* a piece: plain until the enlarged picture is ready */
 		const u64 content = tex_content_id(c->p[i].tcw, c->p[i].tsp);
 		u32 words[8] = { c->p[i].tcw, c->p[i].tsp, (u32)content, (u32)(content >> 32) };
-		memcpy(&words[4], r, sizeof(r));
+		memcpy(&words[4], r, 4 * sizeof(float));
 		for (int k = 0; k < 8; k++)
 			sig = (sig ^ words[k]) * 0x100000001b3ull;
 		n++;
@@ -2779,12 +2855,9 @@ static void hibg_update(const TaCtx *c, const u8 *mask)
 		hibg_build(c, mask, runs);
 		hb_built_sig = sig, hb_runs = runs;
 	}
-	if (c->np > hb_cap)
-		hb_poly = realloc(hb_poly, (hb_cap = c->np) * sizeof(GLuint));
-	memset(hb_poly, 0, c->np * sizeof(GLuint));
 	for (u32 i = 0; i < c->np; i++)
 	{
-		float r[4];
+		float r[6];
 		if (!mask[i] || !hb_rect(c, &c->p[i], r))
 			continue;
 		for (u32 k = 0; k < hb_ntiles; k++)
@@ -2794,7 +2867,6 @@ static void hibg_update(const TaCtx *c, const u8 *mask)
 				break;
 			}
 	}
-	hb_base = c->p, hb_n = c->np;
 }
 
 static int side_fill(TaCtx *c, const u32 *order, u32 n)

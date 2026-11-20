@@ -120,8 +120,8 @@ anti-aliasing on, the outlines are antialiased too. GRAPHICS, MORE SETTINGS, TEX
 HI-RES (that, the default), ORIGINAL (the smooth text of earlier versions: lighter, for slower
 graphics; [video] fonts = 0) or SHARP (the original pixels; [video] text = sharp).
 
-High-res pictures: the character select portraits and the main menu backgrounds are enlarged
-in detail on your graphics card by Anime4K (MIT licence, github.com/bloc97/Anime4K), a small
+High-res pictures: the character select portraits and the menu and loading screen pictures
+(backgrounds, the VS screen's portraits) are enlarged in detail on your graphics card by Anime4K (MIT licence, github.com/bloc97/Anime4K), a small
 neural network made for drawn art. A background is enlarged as one picture when it appears
 (a fraction of a second, once). GRAPHICS, MORE SETTINGS, HI-RES PICTURES (or [video]
 portraits = 0) turns it off.

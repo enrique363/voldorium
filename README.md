@@ -19,8 +19,8 @@ together with a small native runtime that stands in for the Dreamcast hardware. 
 - **Hi-res text**: menu and HUD text drawn from enlarged copies of the game's font, with smooth
   curved outlines and crisp colour (Anime4K), antialiased under MSAA. The lighter ORIGINAL smooth
   text and SHARP pixels are in the GRAPHICS menu.
-- **High-res pictures**: the character select portraits and the main menu backgrounds enlarged
-  in detail on your GPU by Anime4K, a small neural network (GRAPHICS menu, HI-RES PICTURES).
+- **High-res pictures**: the character select portraits and the menu and loading screen
+  pictures enlarged in detail on your GPU by Anime4K, a small neural network (GRAPHICS menu, HI-RES PICTURES).
 - New high resolution art for the hit level labels in Practice (`port/m1/textures`, drawn by
   `tools/hitlabels.py`).
 - **F12 takes a screenshot** (PNG at the full drawing size).
@@ -320,7 +320,7 @@ closed.
 | | `backgrounds` | `stretch`, `blur`, `black`, `replace` | ✓ | How 4:3 menu and loading pictures fill 16:9 (`replace`: 16:9 art from the `art16x9` folder). The Mission Battle map and Art Gallery pictures are never stretched: `stretch` gives them blurred sides. |
 | | `text` | `smooth`, `sharp` | ✓ | Menu and HUD text upscaled with smooth edges, or the original pixels (menu TEXT SHARP). |
 | | `fonts` | `1`, `0` | ✓ | Smooth text in high resolution (curved outlines, Anime4K colour; menu TEXT HI-RES), or the lighter smooth text of earlier versions (TEXT ORIGINAL). |
-| | `portraits` | `1`, `0` | ✓ | Character select portraits and menu backgrounds enlarged in detail by Anime4K on the GPU (menu HI-RES PICTURES), or as before. |
+| | `portraits` | `1`, `0` | ✓ | Character select portraits, menu and loading screen pictures enlarged in detail by Anime4K on the GPU (menu HI-RES PICTURES), or as before. |
 | `[audio]` | `enabled` | `1`, `0` | | `0`: no sound at all. |
 | | `volume` | `0` to `200` | ✓ | Sound volume in percent (the menu steps 0, 25, 50, 75, 100). |
 | `[keys]` | `up down left right a b x y start l r` | SDL key names | | Keyboard controls (`Up`, `Z`, `Return`...). |
