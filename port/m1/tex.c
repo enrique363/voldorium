@@ -619,20 +619,21 @@ unsigned tex_get_hi(u32 tcw, u32 tsp, int *scale, int *edge, int text, int pictu
 			solid |= al == 255, clear |= al == 0, other |= al != 0 && al != 255;
 		}
 		const int opaque = !clear && !other, cut = solid && clear && !other;
-		unsigned gl_a4k_upscale(unsigned id, u32 w, u32 h, const u32 *rgba, int runs, const u8 *alpha);
+		unsigned gl_a4k_upscale(unsigned id, u32 w, u32 h, const u32 *rgba, int runs, const u8 *alpha, const u32 *orig);
 		const int runs = k == 4 ? 2 : 1;
 		unsigned nn = 0;
 		e->hi_edge = 0;
 		if (opaque && pictures)
-			nn = gl_a4k_upscale(e->hi_id, w, h, a, runs, 0);
+			nn = gl_a4k_upscale(e->hi_id, w, h, a, runs, 0, 0);
 		else if (cut && text >= 2)	/* TEXT HI-RES */
 		{
 			static u8 *al;
 			if (!al)
 				al = malloc(1024 * 1024 * 4);
 			cut_alpha(a, w, h, (u32)k, al);
+			memcpy(b, a, (size_t)w * h * sizeof(u32));	/* the original colours, for the clear texels */
 			cut_fill(a, w, h);
-			nn = gl_a4k_upscale(e->hi_id, w, h, a, runs, al);
+			nn = gl_a4k_upscale(e->hi_id, w, h, a, runs, al, b);
 			e->hi_edge = nn != 0;
 			if (!nn)
 				decode(tcw, w, h, a);	/* the cubic enlargement below, from the original */

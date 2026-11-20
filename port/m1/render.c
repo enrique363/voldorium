@@ -1114,16 +1114,22 @@ static int a4k_ready(void)
 			return 0;
 		a4k_prog[i] = a4k_link(vs, fs, ps->nbind, ps->bind);
 	}
-	/* the colour clamped; the alpha from ALPHA (a cut-out's smoothed alpha, tex.c) or opaque */
+	/* the colour clamped, opaque; a cut-out (tex.c): the alpha from ALPHA (smoothed), and where
+	   it falls to nothing, the colour of the original texel (ORIG): blending by colour (dst *
+	   (1 - src colour), the menus' dark titles) must see the clear texels as they were */
 	static const char *out_src =
-		"#version 330 core\nin vec2 v_pos;\nout vec4 o_col;\nuniform sampler2D MAIN_raw, ALPHA_raw;\nuniform int has_alpha;\n"
-		"void main() { o_col = vec4(clamp(texture(MAIN_raw, v_pos).rgb, 0.0, 1.0),\n"
-		"                           has_alpha != 0 ? texture(ALPHA_raw, v_pos).r : 1.0); }\n";
+		"#version 330 core\nin vec2 v_pos;\nout vec4 o_col;\nuniform sampler2D MAIN_raw, ALPHA_raw, ORIG_raw;\nuniform int has_alpha;\n"
+		"void main() {\n"
+		"  vec3 c = clamp(texture(MAIN_raw, v_pos).rgb, 0.0, 1.0);\n"
+		"  if (has_alpha == 0) { o_col = vec4(c, 1.0); return; }\n"
+		"  float a = texture(ALPHA_raw, v_pos).r;\n"
+		"  o_col = vec4(mix(texture(ORIG_raw, v_pos).rgb, c, clamp(a * 2.0, 0.0, 1.0)), a);\n"
+		"}\n";
 	const GLuint ofs = a4k_shader(GL_FRAGMENT_SHADER, out_src, "output");
 	if (!ofs)
 		return 0;
-	static const char *const main_name[2] = { "MAIN", "ALPHA" };
-	a4k_out_prog = a4k_link(vs, ofs, 2, main_name);
+	static const char *const main_name[3] = { "MAIN", "ALPHA", "ORIG" };
+	a4k_out_prog = a4k_link(vs, ofs, 3, main_name);
 	static const float tri[6] = { -1, -1, 3, -1, -1, 3 };	/* one triangle covers the viewport */
 	glGenVertexArrays(1, &a4k_vao);
 	glBindVertexArray(a4k_vao);
@@ -1154,8 +1160,9 @@ static GLuint a4k_texture(int w, int h, GLenum fmt, GLint filter, const void *rg
 
 /* the picture rgba (w x h, its colour; alpha not used) enlarged 2^runs times into texture id
    (replaced; 0: a new one), RGBA8; its alpha from alpha (the enlarged size, one byte a texel) or
-   opaque when 0. Returns 0 when Anime4K failed (id is then left alone) */
-unsigned gl_a4k_upscale(unsigned id, u32 w, u32 h, const u32 *rgba, int runs, const u8 *alpha)
+   opaque when 0; with alpha, orig (w x h) gives the colour where alpha is nothing. Returns 0
+   when Anime4K failed (id is then left alone) */
+unsigned gl_a4k_upscale(unsigned id, u32 w, u32 h, const u32 *rgba, int runs, const u8 *alpha, const u32 *orig)
 {
 	if (runs < 1 || !a4k_ready())
 		return 0;
@@ -1230,9 +1237,12 @@ unsigned gl_a4k_upscale(unsigned id, u32 w, u32 h, const u32 *rgba, int runs, co
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, id, 0);
 	glViewport(0, 0, mw, mh);
 	glUseProgram(a4k_out_prog);
-	GLuint atex = 0;
+	GLuint atex = 0, otex = 0;
 	if (alpha)
 	{
+		otex = a4k_texture((int)w, (int)h, GL_RGBA8, GL_NEAREST, orig);
+		glActiveTexture(GL_TEXTURE2);
+		glBindTexture(GL_TEXTURE_2D, otex);
 		glGenTextures(1, &atex);
 		glActiveTexture(GL_TEXTURE1);
 		glBindTexture(GL_TEXTURE_2D, atex);
@@ -1248,6 +1258,8 @@ unsigned gl_a4k_upscale(unsigned id, u32 w, u32 h, const u32 *rgba, int runs, co
 	glDrawArrays(GL_TRIANGLES, 0, 3);
 	if (atex)
 		glDeleteTextures(1, &atex);
+	if (otex)
+		glDeleteTextures(1, &otex);
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
 	for (int k = 0; k < ntex; k++)
 		glDeleteTextures(1, &tex[k]);
