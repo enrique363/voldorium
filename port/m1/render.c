@@ -1038,7 +1038,7 @@ unsigned gl_upload_texture(unsigned id, u32 w, u32 h, const u32 *rgba)
  * run doubles the size, two runs give the 4 times tex.c asks for. The passes' GLSL is kept as is;
  * this adds what mpv gives a shader around it (NAME_tex, _pos, _pt, _size, _texOff for each bound
  * texture) and runs the passes into half-float textures. The colour comes from the network, the
- * picture is opaque. [video] portraits = 0 (M1_A4K=0, GRAPHICS menu HI-RES PORTRAITS OFF): off,
+ * picture is opaque. [video] portraits = 0 (M1_A4K=0, GRAPHICS menu HI-RES PICTURES OFF): off,
  * the cubic enlargement instead (or the original pixels with [video] text = sharp). */
 #include "a4k_shaders.h"
 #define A4K_PASSES (int)(sizeof(a4k_passes) / sizeof(a4k_passes[0]))
@@ -1499,6 +1499,13 @@ static void state_invalidate(void)
 	st_valid = 0;
 }
 
+/* this frame's hi-res background pieces (hibg_update): the texture for polygon i of hb_base */
+u64 tex_content_id(u32 tcw, u32 tsp);
+u64 render_count(void);
+static const TaPoly *hb_base;
+static u32 hb_n;
+static GLuint *hb_poly;
+
 static void state_for(const TaPoly *p, int list, PolyState *s)
 {
 	memset(s, 0, sizeof(*s));
@@ -1546,12 +1553,18 @@ static void state_for(const TaPoly *p, int list, PolyState *s)
 	   opaque, as the filtered edges fall between the two. M1_SMOOTH2D=0 ([video] text = sharp):
 	   off. */
 	const int tm = video_text_mode(), smooth = tm < 2 ? 2 - tm : 0, pictures = video_portraits();	/* smooth: 2 HI-RES, 1 SMOOTH; pictures: [video] portraits (tex.c) */
-	int hi = 1;
+	int hi = 1, hb = 0;
 	unsigned rep;
 	if ((rep = tex_get_rep(p->tcw, tsp)))
 	{
 		s->tex = rep;	/* replacement art (tex.c) */
 		filt = GL_LINEAR;
+	}
+	else if (hb_n && p >= hb_base && p < hb_base + hb_n && hb_poly[p - hb_base])
+	{
+		s->tex = hb_poly[p - hb_base];	/* a piece of the hi-res background (hibg_update) */
+		filt = GL_LINEAR;
+		hb = 1;
 	}
 	else if ((smooth || pictures) && tgt_w == 640 && vp_h > 600 && p->cls >= M1_2D_HUD && p->cls <= M1_2D_SCREEN)
 	{
@@ -1573,6 +1586,8 @@ static void state_for(const TaPoly *p, int list, PolyState *s)
 	s->filt = filt;
 	s->wrap_s = ((tsp >> 16) & 1) ? GL_CLAMP_TO_EDGE : ((tsp >> 18) & 1) ? GL_MIRRORED_REPEAT : GL_REPEAT;
 	s->wrap_t = ((tsp >> 15) & 1) ? GL_CLAMP_TO_EDGE : ((tsp >> 17) & 1) ? GL_MIRRORED_REPEAT : GL_REPEAT;
+	if (hb)
+		s->wrap_s = s->wrap_t = GL_CLAMP_TO_EDGE;	/* its edges continue in the next piece, not around */
 }
 
 /* make OpenGL's state s, sending only what differs from st_cur (everything when !st_valid);
@@ -2588,8 +2603,203 @@ static void draw_replacement(int id, const u8 *rgba, u32 w, u32 h)
 	 black	 nothing: black sides, as on a 16:9 TV (issue #15)
    M1_BLURFILL=0 turns the blur fill off. */
 static u8 *bg_layer;
+
+/* ---- hi-res backgrounds ----------------------------------------------------------------------
+ * A 4:3 background (the layer side_fill finds: the main menu's is 70 tiles of 64x64) is
+ * enlarged by Anime4K as one picture, so the tiles meet without seams, and each tile is then
+ * drawn from its own piece of the result (state_for, hb_poly): the game still draws the tiles,
+ * with its tints, fades and the 16:9 modes. Pieces are flat rectangles showing a whole opaque
+ * texture; others are drawn as they are. The picture is made again when the layer changes
+ * (textures, contents, places: not colours), once it has stayed the same for 3 frames, so
+ * nothing is enlarged while it moves. [video] portraits (HI-RES PICTURES) turns it on. */
+typedef struct { u32 tcw, tsp; float r[4]; GLuint tex; } HbTile;
+enum { HB_MAX = 512 };
+static HbTile hb_tiles[HB_MAX];
+static u32 hb_ntiles, hb_stable, hb_cap;
+static u64 hb_sig, hb_built_sig;
+static int hb_runs;
+static GLuint hb_fbo[2];
+
+/* the screen rectangle of a flat textured quad showing its whole texture the right way round */
+static int hb_rect(const TaCtx *c, const TaPoly *p, float r[4])
+{
+	if (!((p->isp >> 25) & 1) || p->count != 4 || (p->list != 0 && p->list != 4))
+		return 0;
+	const TaVert *v = &c->v[p->first];
+	float x0 = 1e30f, x1 = -1e30f, y0 = 1e30f, y1 = -1e30f;
+	for (int k = 0; k < 4; k++)
+		x0 = fminf(x0, v[k].x), x1 = fmaxf(x1, v[k].x), y0 = fminf(y0, v[k].y), y1 = fmaxf(y1, v[k].y);
+	if (x1 - x0 < 4 || y1 - y0 < 4 || x0 < -0.5f || y0 < -0.5f || x1 > 640.5f || y1 > 480.5f)
+		return 0;
+	for (int k = 0; k < 4; k++)
+	{
+		const int left = fabsf(v[k].x - x0) < 0.01f, right = fabsf(v[k].x - x1) < 0.01f;
+		const int top = fabsf(v[k].y - y0) < 0.01f, bottom = fabsf(v[k].y - y1) < 0.01f;
+		if (!(left || right) || !(top || bottom) || fabsf(v[k].u - (float)right) > 0.002f || fabsf(v[k].v - (float)bottom) > 0.002f)
+			return 0;
+	}
+	r[0] = x0, r[1] = y0, r[2] = x1, r[3] = y1;
+	return 1;
+}
+
+static void hibg_build(const TaCtx *c, const u8 *mask, int runs)
+{
+	u32 tex_decode_rgba(u32 tcw, u32 tsp, u32 *out, u32 *w, u32 *h);
+	unsigned gl_a4k_upscale(unsigned id, u32 w, u32 h, const u32 *rgba, int runs, const u8 *alpha, const u32 *orig);
+	static int log = -1;
+	if (log < 0)
+		log = getenv("M1_HILOG") != 0;
+	const clock_t t0 = clock();
+	state_invalidate();
+	for (u32 i = 0; i < hb_ntiles; i++)
+		if (hb_tiles[i].tex)
+			glDeleteTextures(1, &hb_tiles[i].tex);
+	hb_ntiles = 0;
+	static u32 *canvas, *px;
+	if (!canvas)
+		canvas = malloc(640 * 480 * 4), px = malloc(1024 * 1024 * 4);
+	for (u32 i = 0; i < 640 * 480; i++)
+		canvas[i] = 0xff000000u;
+	/* the pieces, untinted, into one 640x480 picture (bilinear: exact for 1:1 tiles) */
+	for (u32 i = 0; i < c->np && hb_ntiles < HB_MAX; i++)
+	{
+		const TaPoly *p = &c->p[i];
+		float r[4];
+		if (!mask[i] || !hb_rect(c, p, r))
+			continue;
+		int dup = 0;
+		for (u32 k = 0; k < hb_ntiles && !dup; k++)
+			dup = hb_tiles[k].tcw == p->tcw && hb_tiles[k].tsp == p->tsp && !memcmp(hb_tiles[k].r, r, sizeof(r));
+		if (dup)
+			continue;
+		u32 w, h, opaque = 1;
+		tex_decode_rgba(p->tcw, p->tsp, px, &w, &h);
+		for (u32 k = 0; k < w * h && opaque; k++)
+			opaque = px[k] >> 24 == 255;
+		if (!opaque)
+			continue;
+		HbTile *t = &hb_tiles[hb_ntiles++];
+		t->tcw = p->tcw, t->tsp = p->tsp, t->tex = 0;
+		memcpy(t->r, r, sizeof(r));
+		const int ya = (int)fmaxf(0, floorf(r[1])), yb = (int)fminf(480, ceilf(r[3]));
+		const int xa = (int)fmaxf(0, floorf(r[0])), xb = (int)fminf(640, ceilf(r[2]));
+		for (int y = ya; y < yb; y++)
+			for (int x = xa; x < xb; x++)
+			{
+				const float cx = x + 0.5f, cy = y + 0.5f;
+				if (cx < r[0] || cx >= r[2] || cy < r[1] || cy >= r[3])
+					continue;
+				float fu = (cx - r[0]) / (r[2] - r[0]) * w - 0.5f, fv = (cy - r[1]) / (r[3] - r[1]) * h - 0.5f;
+				fu = fminf(fmaxf(fu, 0), w - 1.001f), fv = fminf(fmaxf(fv, 0), h - 1.001f);
+				const u32 u0 = (u32)fu, v0 = (u32)fv;
+				const float a = fu - u0, b = fv - v0;
+				const u32 *q = &px[v0 * w + u0];
+				u32 out = 0xff000000u;
+				for (int ch = 0; ch < 24; ch += 8)
+				{
+					const float top = ((q[0] >> ch) & 255) * (1 - a) + ((q[1] >> ch) & 255) * a;
+					const float bot = ((q[w] >> ch) & 255) * (1 - a) + ((q[w + 1] >> ch) & 255) * a;
+					out |= (u32)(top * (1 - b) + bot * b + 0.5f) << ch;
+				}
+				canvas[y * 640 + x] = out;
+			}
+	}
+	const GLuint big = hb_ntiles ? gl_a4k_upscale(0, 640, 480, canvas, runs, 0, 0) : 0;
+	if (big)
+	{
+		/* each piece cut out of the enlarged picture into its own texture */
+		const float k = (float)(1 << runs);
+		GLint draw_fb, read_fb;
+		glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &draw_fb);
+		glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &read_fb);
+		const GLboolean scissor = glIsEnabled(GL_SCISSOR_TEST);
+		glDisable(GL_SCISSOR_TEST);
+		if (!hb_fbo[0])
+			glGenFramebuffers(2, hb_fbo);
+		glBindFramebuffer(GL_READ_FRAMEBUFFER, hb_fbo[0]);
+		glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, big, 0);
+		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, hb_fbo[1]);
+		for (u32 i = 0; i < hb_ntiles; i++)
+		{
+			HbTile *t = &hb_tiles[i];
+			const int sx0 = (int)lroundf(t->r[0] * k), sy0 = (int)lroundf(t->r[1] * k);
+			const int sx1 = (int)lroundf(t->r[2] * k), sy1 = (int)lroundf(t->r[3] * k);
+			glGenTextures(1, &t->tex);
+			glBindTexture(GL_TEXTURE_2D, t->tex);
+			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, sx1 - sx0, sy1 - sy0, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+			glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, t->tex, 0);
+			glBlitFramebuffer(sx0, sy0, sx1, sy1, 0, 0, sx1 - sx0, sy1 - sy0, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+		}
+		glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
+		glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
+		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, (GLuint)draw_fb);
+		glBindFramebuffer(GL_READ_FRAMEBUFFER, (GLuint)read_fb);
+		if (scissor)
+			glEnable(GL_SCISSOR_TEST);
+		glDeleteTextures(1, &big);
+		st_valid = 0;
+	}
+	if (log)
+		printf("hibg: render %llu, %u pieces, x%d, %.1f ms\n", (unsigned long long)render_count(), hb_ntiles, 1 << runs,
+			   (double)(clock() - t0) * 1000.0 / CLOCKS_PER_SEC);
+}
+
+/* the hi-res pieces for this frame's background layer (mask) */
+static void hibg_update(const TaCtx *c, const u8 *mask)
+{
+	if (!video_portraits() || vp_h <= 600)
+		return;
+	u64 sig = 0xcbf29ce484222325ull;
+	u32 n = 0;
+	for (u32 i = 0; i < c->np; i++)
+	{
+		float r[4];
+		if (!mask[i] || !hb_rect(c, &c->p[i], r))
+			continue;
+		const u64 content = tex_content_id(c->p[i].tcw, c->p[i].tsp);
+		u32 words[8] = { c->p[i].tcw, c->p[i].tsp, (u32)content, (u32)(content >> 32) };
+		memcpy(&words[4], r, sizeof(r));
+		for (int k = 0; k < 8; k++)
+			sig = (sig ^ words[k]) * 0x100000001b3ull;
+		n++;
+	}
+	if (!n)
+		return;
+	if (sig != hb_sig)
+		hb_sig = sig, hb_stable = 0;
+	else if (hb_stable < 1000)
+		hb_stable++;
+	const int runs = vp_h > 1200 ? 2 : 1;	/* 4 times the 640x480 picture above 1200 lines, else 2 */
+	if (sig != hb_built_sig || runs != hb_runs)
+	{
+		if (hb_stable < 3)
+			return;	/* drawn as it is while it changes */
+		hibg_build(c, mask, runs);
+		hb_built_sig = sig, hb_runs = runs;
+	}
+	if (c->np > hb_cap)
+		hb_poly = realloc(hb_poly, (hb_cap = c->np) * sizeof(GLuint));
+	memset(hb_poly, 0, c->np * sizeof(GLuint));
+	for (u32 i = 0; i < c->np; i++)
+	{
+		float r[4];
+		if (!mask[i] || !hb_rect(c, &c->p[i], r))
+			continue;
+		for (u32 k = 0; k < hb_ntiles; k++)
+			if (hb_tiles[k].tcw == c->p[i].tcw && hb_tiles[k].tsp == c->p[i].tsp && !memcmp(hb_tiles[k].r, r, sizeof(r)))
+			{
+				hb_poly[i] = hb_tiles[k].tex;
+				break;
+			}
+	}
+	hb_base = c->p, hb_n = c->np;
+}
+
 static int side_fill(TaCtx *c, const u32 *order, u32 n)
 {
+	hb_n = 0;	/* no hi-res background pieces unless this frame has the layer (hibg_update) */
 	static int on = -1;
 	if (on < 0)
 		on = !getenv("M1_BLURFILL") || atoi(getenv("M1_BLURFILL"));
@@ -2635,6 +2845,7 @@ static int side_fill(TaCtx *c, const u32 *order, u32 n)
 			return 0;
 		}
 	}
+	hibg_update(c, bg_layer);	/* hi-res pieces, whatever fills the sides */
 	if (mode == 3)
 		return 0;	/* black sides */
 	if (mode == 2 && !bg_tiled_picture && !bg_gallery_picture)

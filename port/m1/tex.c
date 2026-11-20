@@ -557,7 +557,7 @@ static void cut_alpha(const u32 *a, u32 w, u32 h, u32 k, u8 *out)
 	}
 }
 
-/* the GRAPHICS menu changed TEXT or HI-RES PORTRAITS: every upscaled copy is made again */
+/* the GRAPHICS menu changed TEXT or HI-RES PICTURES: every upscaled copy is made again */
 void tex_hi_reset(void)
 {
 	for (int i = 0; i < NTEX; i++)

@@ -115,14 +115,16 @@ the original picture centred at the same scale).
 
 Text: menu and HUD text is drawn from enlarged copies of the game's font textures, so it keeps
 its size at high resolutions: the letters' outlines follow their curves instead of the original
-pixels' steps, their colour is enlarged by Anime4K (see High-res portraits), and with
+pixels' steps, their colour is enlarged by Anime4K (see High-res pictures), and with
 anti-aliasing on, the outlines are antialiased too. GRAPHICS, MORE SETTINGS, TEXT chooses:
 HI-RES (that, the default), ORIGINAL (the smooth text of earlier versions: lighter, for slower
 graphics; [video] fonts = 0) or SHARP (the original pixels; [video] text = sharp).
 
-High-res portraits: the character select portraits are enlarged in detail on your graphics
-card by Anime4K (MIT licence, github.com/bloc97/Anime4K), a small neural network made for
-drawn art. GRAPHICS, MORE SETTINGS, HI-RES PORTRAITS (or [video] portraits = 0) turns it off.
+High-res pictures: the character select portraits and the main menu backgrounds are enlarged
+in detail on your graphics card by Anime4K (MIT licence, github.com/bloc97/Anime4K), a small
+neural network made for drawn art. A background is enlarged as one picture when it appears
+(a fraction of a second, once). GRAPHICS, MORE SETTINGS, HI-RES PICTURES (or [video]
+portraits = 0) turns it off.
 
 HD art: the textures folder holds new, high resolution art that the game's textures are drawn
 with instead: the HIGH / MID / S-MID / LOW and "!" labels shown at a hit in Practice
@@ -176,7 +178,7 @@ marked * are also in the game (GRAPHICS). Edit it while the game is closed.
          hud *        4:3, middle or edges
          text *       smooth or sharp
          fonts *      1 (hi-res smooth text, default) or 0 (original, lighter)
-         portraits *  1 (high-res portraits, default) or 0
+         portraits *  1 (high-res pictures, default) or 0
          vsync *      1 on, 0 off (see VSync)
 [audio]  enabled      0: no sound at all
          volume *     percent, 0 to 200

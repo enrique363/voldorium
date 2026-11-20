@@ -1,7 +1,7 @@
 /* Online Versus and Graphics from the game's own main menu (Windows).
  *
  * GRAPHICS (after OPTIONS) opens a submenu the same way: display (full screen or a window),
- * resolution, anti-aliasing, VSync, loading speed (hle.c), text and portraits; selecting a line cycles its value, applied at once and saved
+ * resolution, anti-aliasing, VSync, loading speed (hle.c), text and pictures; selecting a line cycles its value, applied at once and saved
  * (render.c video_*). The main menu's entries are rebuilt in scratch RAM (13 instead of 12);
  * ONLINE VERSUS and GRAPHICS share the INTERNET entry's id (help line switched by the cursor).
  *
@@ -1049,7 +1049,7 @@ static void build_graphics(u32 cur)
 		line(bg[video_backgrounds()], "4:3 pictures: stretched, blurred or black sides.", V_G_BG, 1);
 		static const char *const text[3] = { "TEXT HI-RES", "TEXT ORIGINAL", "TEXT SHARP" };
 		line(text[video_text_mode()], "Hi-res, original (lighter), or sharp pixels.", V_G_TEXT, 1);
-		line(video_portraits() ? "HI-RES PORTRAITS ON" : "HI-RES PORTRAITS OFF", "Character select portraits enlarged in detail.", V_G_PORTRAITS, 1);
+		line(video_portraits() ? "HI-RES PICTURES ON" : "HI-RES PICTURES OFF", "Portraits and menu backgrounds in detail.", V_G_PORTRAITS, 1);
 		const int vol = audio_volume();
 		if (vol)
 			snprintf(l, sizeof(l), "VOLUME %d", vol);
@@ -1073,7 +1073,7 @@ static void build_graphics(u32 cur)
 	line(video_vsync() ? "VSYNC ON" : "VSYNC OFF", "On: no tearing. Off: lowest input delay.", V_G_VSYNC, 1);
 	static const char *const hud[3] = { "HUD EDGES", "HUD MIDDLE", "HUD 4:3" };
 	line(hud[video_hud()], "Fight HUD: at the edges, halfway, or as in 4:3."	/* no wider than the others: text reaching the screen's sides reads as a 4:3 picture (render.c) */, V_G_HUD, 1);
-	line("MORE SETTINGS", latest[0] ? "Loading, backgrounds, text, portraits, update." : "Loading, backgrounds, text, portraits, volume.", V_G_MORE, 1);
+	line("MORE SETTINGS", latest[0] ? "Loading, backgrounds, text, pictures, update." : "Loading, backgrounds, text, pictures, volume.", V_G_MORE, 1);
 	}
 	line("TO MAIN MENU", "", 0, 2);
 	for (int k = nlines; k < POOL_N; k++)
@@ -1330,7 +1330,7 @@ void online_menu(SH4 *c, void (*f)(SH4 *))
 			graphics_choose(V_G_RES);
 			graphics_choose(V_G_AA);
 		}
-		/* M1_LOBBY_TEST=graphics,portraits: MORE SETTINGS, then HI-RES PORTRAITS once;
+		/* M1_LOBBY_TEST=graphics,portraits: MORE SETTINGS, then HI-RES PICTURES once;
 		   graphics,text: TEXT instead, three times (a second apart) */
 		static int pcalls;
 		const int text_line = strstr(test, "text") != 0;

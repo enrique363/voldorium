@@ -14,10 +14,12 @@ All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); 
   end of Arcade mode is now playable as his third outfit. On the character select screen, hold
   **Y** and press **A** on Inferno. His usual outfits stay on A and Y, and fights keep their
   usual stages: only the real final battle takes place in Chaos.
-- **High-res portraits** (enrique363/voldorium#24): at resolutions above 480p the character
-  select portraits, small and large, are enlarged in detail on your graphics card by Anime4K
-  (MIT licence), a small neural network made for drawn art, instead of being blown up blurry.
-  GRAPHICS, MORE SETTINGS, **HI-RES PORTRAITS** turns it off (`[video] portraits = 0`). With
+- **High-res pictures** (enrique363/voldorium#24): at resolutions above 480p the character
+  select portraits, small and large, and the main menu backgrounds are enlarged in detail on
+  your graphics card by Anime4K (MIT licence), a small neural network made for drawn art,
+  instead of being blown up blurry. A tiled background is enlarged as one picture, so its
+  tiles meet without seams. GRAPHICS, MORE SETTINGS, **HI-RES PICTURES** turns it off
+  (`[video] portraits = 0`). With
   an update available, that page's BACK line becomes the UPDATE line.
 - **Hi-res text** (enrique363/voldorium#24): menu and HUD text (the game's fonts, names, timer,
   round messages) keeps smooth curved outlines instead of the original pixels' steps, its
