@@ -16,6 +16,7 @@
 #include <string.h>
 #include <math.h>
 #include <time.h>
+#include <SDL2/SDL.h>
 
 static const u32 vq_mip[11] = { 0x0, 0x1, 0x2, 0x6, 0x16, 0x56, 0x156, 0x556, 0x1556, 0x5556, 0x15556 };
 static const u32 other_mip[11] = { 0x3, 0x4, 0x8, 0x18, 0x58, 0x158, 0x558, 0x1558, 0x5558, 0x15558, 0x55558 };
@@ -192,6 +193,7 @@ typedef struct
 	int hi_volatile;			/* changes too often to upscale: an animation, drawn plain */
 	u32 hi_count;				/* upscales since hi_since */
 	u64 hi_since;				/* render count */
+	int hi_pending;				/* its enlargement is with the worker (tex_get_hi) */
 	unsigned rep_id;			/* with replacement art (tex_get_rep), 0: none */
 	u64 rep_key;				/* the contents rep_id was made for (hash ^ pal_hash), 0: not checked */
 } TexEntry;
@@ -419,6 +421,55 @@ static void upscale(const u32 *src, u32 w, u32 h, u32 k, u32 *dst)
 	}
 }
 
+/* The enlargement runs on a worker thread: about 9 ms for a 512x512 texture, and some scenes
+   bring several new ones a frame (enrique363/voldorium#19: Inferno's explosion, about 5 a frame
+   for a second, 25 ms a frame). Meanwhile the texture is drawn plain; the result is uploaded at
+   the next tex_get_hi once ready, if the texture still holds the same contents. One job at a
+   time. */
+static struct
+{
+	SDL_Thread *thread;
+	SDL_sem *go;
+	SDL_atomic_t state;		/* 0 idle, 1 working, 2 done */
+	TexEntry *e;
+	u32 tcw, size, w, h, k;
+	u64 key;
+	u32 *src, *dst;
+} hj;
+static int SDLCALL hj_main(void *arg)
+{
+	(void)arg;
+	for (;;)
+	{
+		SDL_SemWait(hj.go);
+		upscale(hj.src, hj.w, hj.h, hj.k, hj.dst);
+		SDL_MemoryBarrierRelease();
+		SDL_AtomicSet(&hj.state, 2);
+	}
+	return 0;
+}
+static u64 hj_key(const TexEntry *e) { return (e->hash ^ e->pal_hash) + e->tcw * 0x9e3779b97f4a7c15ull + e->size; }
+/* a finished job: its texture uploaded if the entry still holds what it was made from */
+static void hj_collect(void)
+{
+	if (!hj.thread || SDL_AtomicGet(&hj.state) != 2)
+		return;
+	SDL_MemoryBarrierAcquire();
+	TexEntry *e = hj.e;
+	if (e->hi_pending && !e->hi_ok && e->used && e->tcw == hj.tcw && e->size == hj.size && hj_key(e) == hj.key)
+	{
+		e->hi_id = gl_upload_texture(e->hi_id, hj.w * hj.k, hj.h * hj.k, hj.dst);
+		e->hi_ok = 1;
+		if (getenv("M1_HILOG"))
+		{
+			u64 render_count(void);
+			printf("hi: render %llu tcw %08x %ux%u x%u ready\n", (unsigned long long)render_count(), hj.tcw, hj.w, hj.h, hj.k);
+		}
+	}
+	e->hi_pending = 0;
+	SDL_AtomicSet(&hj.state, 0);
+}
+
 /* the texture upscaled (4x up to 256 texels, 2x up to 512) for 2D drawn with bilinear
    filtering at high resolutions (render.c: text and HUD); *scale = the factor,
    1 when the texture is too large (then it is the plain one) */
@@ -434,7 +485,14 @@ unsigned tex_get_hi(u32 tcw, u32 tsp, int *scale)
 		*scale = 1;
 		return e->id;
 	}
-	if (!e->hi_ok)
+	hj_collect();
+	if (e->hi_ok)
+		return e->hi_id;
+	if (e->hi_pending || (hj.thread && SDL_AtomicGet(&hj.state) != 0))
+	{
+		*scale = 1;	/* the worker is busy: plain for now */
+		return e->id;
+	}
 	{
 		/* a texture rewritten every few frames (animated surfaces, palette cycling) is not
 		   text: more than 6 upscales within 300 renders and it stays plain */
@@ -454,19 +512,31 @@ unsigned tex_get_hi(u32 tcw, u32 tsp, int *scale)
 			a = malloc(1024 * 1024 * 4 * sizeof(u32));
 			b = malloc(1024 * 1024 * 4 * sizeof(u32));
 		}
-		static int log = -1;	/* M1_HILOG=1: each upscale, with its time */
+		static int log = -1;	/* M1_HILOG=1: each upscale */
 		if (log < 0)
 			log = getenv("M1_HILOG") != 0;
-		const clock_t t0 = log ? clock() : 0;
 		decode(tcw, w, h, a);
-		upscale(a, w, h, (u32)k, b);
-		e->hi_id = gl_upload_texture(e->hi_id, w * k, h * k, b);
-		if (log)
+		if (!hj.thread)
 		{
-			u64 render_count(void);
-			printf("hi: render %llu tcw %08x %ux%u x%d %.1f ms\n", (unsigned long long)render_count(), tcw, w, h, k,
-				   (double)(clock() - t0) * 1000.0 / CLOCKS_PER_SEC);
+			hj.src = malloc(1024 * 1024 * sizeof(u32));
+			hj.dst = malloc(1024 * 1024 * 16 * sizeof(u32));
+			hj.go = SDL_CreateSemaphore(0);
+			hj.thread = SDL_CreateThread(hj_main, "upscale", 0);
 		}
+		if (hj.thread)
+		{
+			memcpy(hj.src, a, (size_t)w * h * sizeof(u32));
+			hj.e = e, hj.tcw = tcw, hj.size = e->size, hj.w = w, hj.h = h, hj.k = (u32)k, hj.key = hj_key(e);
+			e->hi_pending = 1;
+			SDL_AtomicSet(&hj.state, 1);
+			SDL_SemPost(hj.go);
+			if (log)
+				printf("hi: render %llu tcw %08x %ux%u x%d queued\n", (unsigned long long)now, tcw, w, h, k);
+			*scale = 1;
+			return e->id;	/* plain until the worker is done */
+		}
+		upscale(a, w, h, (u32)k, b);	/* no thread: here */
+		e->hi_id = gl_upload_texture(e->hi_id, w * k, h * k, b);
 		e->hi_ok = 1;
 	}
 	return e->hi_id;
