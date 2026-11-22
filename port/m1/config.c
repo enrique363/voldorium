@@ -3,6 +3,7 @@
  * voldorium.ini (next to the executable) holds the player's settings:
  *   [game]  disc = path of the .gdi        font = BIOS font file (optional)
  *           loading = original (disc reads take the Dreamcast drive's time) / fast (instant)
+ *           unlock_all = 0/1 (offline: everything unlocked, as online; netplay.c)
  *           vmu = memory card file (default vmu_a1.bin next to the executable; none in netplay)
  *   [video] fullscreen = 0/1 (player form default 1)  resolution = native, 77%/67%/59%/50% of
  *           native (FSR 1 upscaling) or WxH (the picture is drawn at that size)  upscale = fsr/linear
@@ -160,6 +161,7 @@ static const char *const ini_notes[][3] = {
 	{ "game", "font", "the Dreamcast system font file (optional)" },
 	{ "game", "loading", "original (as fast as the Dreamcast's drive) or fast (instant); online: always original" },
 	{ "game", "vmu", "the memory card file (default: vmu_a1.bin next to the game)" },
+	{ "game", "unlock_all", "1: every character, stage, costume and extra mode unlocked offline (kept on your memory card, even after setting it back to 0), 0: as you earn them" },
 	{ "game", "update_check", "1: ask the lobby server for a newer version at the main menu (sends only the version), 0: never" },
 	{ "video", "fullscreen", "1 full screen, 0 a window (Alt+Enter or F11 switch while playing)" },
 	{ "video", "resolution", "native (your monitor's), 77%, 67%, 59% or 50% of native (drawn smaller, sharpened back up with AMD FSR 1), or a size such as 1920x1080: the size the game is drawn at" },
@@ -261,6 +263,8 @@ static void apply_settings(void)
 	env_default("M1_ARTDUMP", config_get("debug", "artdump"));
 	if ((v = config_get("game", "loading")) && !strcmp(v, "fast"))
 		env_default("M1_GDINSTANT", "1");	/* hle.c */
+	if ((v = config_get("game", "unlock_all")) && atoi(v))
+		env_default("M1_UNLOCKALL", "1");	/* netplay.c */
 	{
 		char art[1100];	/* 16:9 replacement pictures (artswap.c) */
 		snprintf(art, sizeof(art), "%s/art16x9", exe_dir);

@@ -540,7 +540,34 @@ void netplay_hook(SH4 *c)
 		m1_resim = 0;
 	}
 	if (!on)
+	{
+		/* [game] unlock_all = 1 (M1_UNLOCKALL, config.c): offline, everything online matches
+		   unlock below is unlocked too, merged into the card's progress rather than replacing it
+		   (records and anything already unlocked stay). Held every loop, so the card loading
+		   later does not lock it again; the game saves it to the card like any unlock. */
+		static int unlock = -1;
+		if (unlock < 0)
+			unlock = getenv("M1_UNLOCKALL") && atoi(getenv("M1_UNLOCKALL")) && !back && !m1_net_active;
+		if (unlock)
+		{
+			for (u32 c = 1; c <= 20; c++)
+			{
+				const u32 a = 0x8c336df8u + 4 * c, v = rd32(a), want = c == 10 ? 0x0000ffffu : 0x00010001u;
+				u32 n = v;
+				if (!(v & 0xffffu))
+					n |= want & 0xffffu;
+				if (!(v >> 16))
+					n |= want & 0xffff0000u;
+				if (n != v)
+					wr32(a, n);
+			}
+			static const u32 masks[][2] = { { 0x8c336e60u, 0x007f7300u }, { 0x8c336e64u, 0x0000007fu }, { 0x8c336e68u, 0x0037fbfeu } };
+			for (unsigned i = 0; i < 3; i++)
+				if ((rd32(masks[i][0]) & masks[i][1]) != masks[i][1])
+					wr32(masks[i][0], rd32(masks[i][0]) | masks[i][1]);
+		}
 		return;
+	}
 	{
 		/* Online matches have no memory card (maple.c: both sides must run the same game), so
 		   the game starts with a new player's roster: one row of characters. Both sides get

@@ -176,6 +176,8 @@ marked * are also in the game (GRAPHICS). Edit it while the game is closed.
          font         the Dreamcast system font file (optional)
          loading *    original or fast (see above)
          vmu          the memory card file (default vmu_a1.bin next to the game)
+         unlock_all   1: every character, stage, costume and extra mode unlocked offline
+                      (saved on your memory card: it stays after setting it back to 0)
          update_check 1: say when a newer version is out (see Updates), 0: never ask
 [video]  fullscreen * 1 full screen, 0 a window
          resolution * native (your screen's size and shape), 77%, 67%, 59% or 50% of it (upscaled
