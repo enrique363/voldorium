@@ -50,7 +50,11 @@ All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); 
   Deck the scene also had a second, bigger cost: each rewritten texture was written into the
   texture already in use, and Mesa waited for the GPU to finish drawing with it first. Five
   waits a frame meant 43 to 62 ms of drawing per frame, about 15 FPS for a second. A rewritten
-  texture now gets a fresh texture instead. Same pictures, byte for byte.
+  texture now gets a fresh texture instead. Same pictures, byte for byte. A third cost, found
+  with the test 4 profiler, remained on every system: smooth text enlarges new 2D textures on the
+  processor, about 9 ms each, and the scene brings about 5 new ones a frame (25 ms a frame). The
+  enlargement now runs on a separate thread: a new texture is drawn plain for a frame, then
+  smooth. Opening a menu screen no longer costs 10 to 40 ms either.
 - **Shorter hitch when a fight starts** (enrique363/voldorium#19): the roughly 30 new textures
   on a fight's first frame now decode in 7 ms instead of 31 ms on the test PC (on a Steam Deck
   the hitch was about 100 ms).

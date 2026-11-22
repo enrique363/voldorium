@@ -3576,6 +3576,7 @@ static void render_to_texture(TaCtx *c)
 
 u64 render_rtt_count(void) { return rtt_count; }
 u64 render_count(void) { return rendered; }
+double video_ms(void) { return (double)SDL_GetPerformanceCounter() * 1000.0 / (double)SDL_GetPerformanceFrequency(); }	/* wall clock (tex.c) */
 
 /* M1_RECORD=out.mp4 (footage): every V Blank, the last finished frame (at the drawing resolution,
    M1_RESOLUTION) goes to ffmpeg (M1_FFMPEG, default "ffmpeg") at exactly 60 frames a second, so
