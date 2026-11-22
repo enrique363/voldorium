@@ -997,14 +997,21 @@ int video_enabled(void)
    in the draw batch are drawn first (state_invalidate): one of them may use the old contents, and
    a new texture can get the old one's name back. */
 static void state_invalidate(void);
+static u64 gp_upload[2];	/* M1_GPUPROF=2: CPU time in texture uploads (other phases, translucent) */
+static u32 gp_uploads[2];
+static int gp_level(void);
+static u32 gp_phase;
 unsigned gl_upload_texture(unsigned id, u32 w, u32 h, const u32 *rgba)
 {
+	const u64 t0 = gp_level() >= 2 ? SDL_GetPerformanceCounter() : 0;
 	state_invalidate();
 	if (id)
 		glDeleteTextures(1, &id);
 	glGenTextures(1, &id);
 	glBindTexture(GL_TEXTURE_2D, id);
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, (GLsizei)w, (GLsizei)h, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+	if (t0)
+		gp_upload[gp_phase == 3] += SDL_GetPerformanceCounter() - t0, gp_uploads[gp_phase == 3]++;
 	return id;
 }
 
@@ -1195,13 +1202,21 @@ static GLsizei *b_count;
 static u32 b_n, b_cap;
 
 static u32 gp_flush[6];
+/* M1_GPUPROF=2: each batch timed on the GPU (gp_batch_begin/end, below the profiler) */
+static void gp_batch_begin(void);
+static void gp_batch_end(void);
 static void batch_flush(void)
 {
 	gp_flush[0]++;
+	if (b_n)
+		gp_batch_begin();
 	for (u32 i = 0; i < b_n; i++)
 		glDrawArrays(GL_TRIANGLE_STRIP, b_first[i], b_count[i]);
+	if (b_n)
+		gp_batch_end();
 	b_n = 0;
 }
+static u32 gp_batch_tcw, gp_batch_tsp, gp_batch_isp, gp_batch_list;	/* the first polygon's, for M1_GPUPROF=2 */
 static void batch_add(u32 first, u32 count)
 {
 	if (b_n == b_cap)
@@ -2433,7 +2448,6 @@ static void fog_table_update(void)
    window, overlays, swap). The glFinish calls slow drawing down: for measuring only. */
 static int gp_on = -1;
 static double gp_ms[6];
-static u32 gp_phase;
 static u64 gp_t;
 static void gp_mark(u32 next)
 {
@@ -2447,8 +2461,121 @@ static void gp_mark(u32 next)
 		gp_ms[gp_phase] += (double)(t - gp_t) * 1000.0 / (double)SDL_GetPerformanceFrequency();
 	gp_t = t, gp_phase = next;
 }
+/* M1_GPUPROF=2 (issue #19): every batch of polygons drawn with one state is also timed on the GPU
+   with a timer query; a slow frame then lists its 12 costliest translucent batches: GPU time,
+   polygons, screen area covered (in screens, so overdraw shows), blending, texture, shader
+   flags, depth test, and the share of the translucent phase the batches account for (the rest is
+   state changes, uploads and the driver) */
+typedef struct
+{
+	u32 phase, n, tcw, tsp, isp, list;
+	float area;
+	PolyState s;
+	GLuint q;
+} GpBatch;
+enum { GP_MAXB = 8192 };
+static GpBatch gp_b[GP_MAXB];
+static u32 gp_nb;
+static GLuint gp_q[GP_MAXB];
+static const TaCtx *gp_ctx;
+static u64 gp_cpu[2];	/* CPU time in state_for (texture lookups, decodes, uploads): other phases, translucent */
+static PFNGLGENQUERIESPROC q_GenQueries;
+static PFNGLBEGINQUERYPROC q_BeginQuery;
+static PFNGLENDQUERYPROC q_EndQuery;
+static PFNGLGETQUERYOBJECTUI64VPROC q_GetQueryObjectui64v;
+static int gp_level(void)
+{
+	static int lv = -1;
+	if (lv < 0)
+	{
+		lv = getenv("M1_GPUPROF") ? atoi(getenv("M1_GPUPROF")) : 0;
+		if (lv >= 2)
+		{
+			q_GenQueries = (PFNGLGENQUERIESPROC)SDL_GL_GetProcAddress("glGenQueries");
+			q_BeginQuery = (PFNGLBEGINQUERYPROC)SDL_GL_GetProcAddress("glBeginQuery");
+			q_EndQuery = (PFNGLENDQUERYPROC)SDL_GL_GetProcAddress("glEndQuery");
+			q_GetQueryObjectui64v = (PFNGLGETQUERYOBJECTUI64VPROC)SDL_GL_GetProcAddress("glGetQueryObjectui64v");
+			if (!q_GenQueries || !q_BeginQuery || !q_EndQuery || !q_GetQueryObjectui64v)
+				lv = 1;
+			else
+				q_GenQueries(GP_MAXB, gp_q);
+		}
+	}
+	return lv;
+}
+static void gp_batch_begin(void)
+{
+	if (gp_level() < 2 || gp_nb >= GP_MAXB || !gp_ctx)
+		return;
+	GpBatch *g = &gp_b[gp_nb];
+	g->phase = gp_phase, g->n = b_n, g->tcw = gp_batch_tcw, g->tsp = gp_batch_tsp, g->isp = gp_batch_isp, g->list = gp_batch_list;
+	g->s = st_cur, g->q = gp_q[gp_nb];
+	float area = 0;
+	for (u32 i = 0; i < b_n; i++)
+		for (GLsizei k = 0; k + 2 < b_count[i]; k++)
+		{
+			const u32 j = (u32)b_first[i] + (u32)k;
+			if (j + 2 >= gp_ctx->nv)
+				break;
+			const TaVert *a = &gp_ctx->v[j], *b = &gp_ctx->v[j + 1], *d = &gp_ctx->v[j + 2];
+			area += fabsf((b->x - a->x) * (d->y - a->y) - (b->y - a->y) * (d->x - a->x)) * 0.5f;
+		}
+	g->area = area / (640.0f * 480.0f);
+	q_BeginQuery(GL_TIME_ELAPSED, g->q);
+}
+static void gp_batch_end(void)
+{
+	if (gp_level() < 2 || gp_nb >= GP_MAXB || !gp_ctx)
+		return;
+	q_EndQuery(GL_TIME_ELAPSED);
+	gp_nb++;
+}
+static int gp_cmp(const void *a, const void *b)
+{
+	const double x = ((const GpBatch *)a)->area, y = ((const GpBatch *)b)->area;	/* area holds the ms when sorting */
+	return x < y ? 1 : x > y ? -1 : 0;
+}
+static void gp_batch_report(double translucent_ms)
+{
+	if (gp_level() < 2)
+		return;
+	static GpBatch top[GP_MAXB];
+	u32 n = 0;
+	double sum = 0, cover = 0;
+	for (u32 i = 0; i < gp_nb; i++)
+	{
+		GLuint64 ns = 0;
+		q_GetQueryObjectui64v(gp_b[i].q, GL_QUERY_RESULT, &ns);
+		if (gp_b[i].phase != 3)
+			continue;
+		top[n] = gp_b[i];
+		cover += gp_b[i].area;
+		top[n].area = (float)(ns / 1e6);	/* ms from here on */
+		top[n].s.alpha_ref = gp_b[i].area;	/* the screens covered, kept for the print */
+		sum += ns / 1e6;
+		n++;
+	}
+	qsort(top, n, sizeof(top[0]), gp_cmp);
+	const double f = 1000.0 / (double)SDL_GetPerformanceFrequency();
+	printf("  translucent: %u batches %.2f ms of %.2f (%.0f%%), covering %.1f screens; state_for %.2f ms (other phases %.2f), of it %u uploads %.2f ms (other phases %u, %.2f)\n", n, sum,
+		   translucent_ms, translucent_ms > 0 ? 100 * sum / translucent_ms : 0.0, cover, gp_cpu[1] * f, gp_cpu[0] * f, gp_uploads[1], gp_upload[1] * f,
+		   gp_uploads[0], gp_upload[0] * f);
+	gp_cpu[0] = gp_cpu[1] = 0, gp_upload[0] = gp_upload[1] = 0, gp_uploads[0] = gp_uploads[1] = 0;
+	static const char *const bf[] = { "0", "1", "Cs", "1-Cs", "As", "1-As", "Ad", "1-Ad" };
+	for (u32 i = 0; i < n && i < 12; i++)
+	{
+		const GpBatch *g = &top[i];
+		const u32 src = (g->tsp >> 29) & 7, dst = (g->tsp >> 26) & 7;
+		const u32 tw = 8u << ((g->tsp >> 3) & 7), th = (g->tcw >> 31) ? tw : 8u << (g->tsp & 7);
+		printf("    %.2f ms: %u polys, %.2f screens, blend %s/%s, %s tex %08x %ux%u filter %u mode %d, flags %d, depth func %u write %d, fog %d\n",
+			   (double)g->area, g->n, (double)g->s.alpha_ref, bf[src], bf[dst], (g->isp >> 25) & 1 ? "" : "no", g->tcw, tw, th,
+			   (g->tsp >> 13) & 3, g->s.mode, g->s.flags, (g->isp >> 29) & 7, g->s.depth_mask, g->s.fog);
+	}
+}
+
 static void draw_lists(TaCtx *c)
 {
+	gp_ctx = c, gp_nb = 0;
 	gp_mark(0);
 	fog_table_update();
 	glEnable(GL_DEPTH_TEST);
@@ -2546,7 +2673,10 @@ static void draw_lists(TaCtx *c)
 			if (only >= 0 && (int)idx[j] != only)
 				continue;
 			PolyState s;
+			const u64 gp_s0 = gp_level() >= 2 ? SDL_GetPerformanceCounter() : 0;
 			state_for(p, p->list, &s);
+			if (gp_s0)
+				gp_cpu[gp_phase == 3] += SDL_GetPerformanceCounter() - gp_s0;
 			{
 				/* M1_FLATPOLY=a:b (debugging): polygons a..b without their texture */
 				static int fa = -2, fb = -1;
@@ -2598,7 +2728,11 @@ static void draw_lists(TaCtx *c)
 			for (u32 k = 0; k < p->count && !bad; k++)
 				bad = vert_bad(&c->v[p->first + k]);
 			if (!bad)
+			{
+				if (!b_n)
+					gp_batch_tcw = p->tcw, gp_batch_tsp = p->tsp, gp_batch_isp = p->isp, gp_batch_list = p->list;
 				batch_add(p->first, p->count);
+			}
 			else
 			{
 				batch_flush();
@@ -3059,8 +3193,12 @@ void render_frame(TaCtx *c)
 		for (int i = 0; i < 5; i++)
 			t += gp_ms[i];
 		if (t > 4)
+		{
 			printf("gpuprof render %llu mode %u: setup %.2f opaque %.2f shadows %.2f translucent %.2f rest %.2f ms, %u polys %u volumes, flushes %u\n",
 				   (unsigned long long)rendered, rd32(0x8c24a584), gp_ms[0], gp_ms[1], gp_ms[2], gp_ms[3], gp_ms[4], c ? c->np : 0, c ? c->nmv : 0, gp_flush[0]);
+			gp_batch_report(gp_ms[3]);
+		}
+		gp_nb = 0;
 		memset(gp_ms, 0, sizeof(gp_ms)), gp_flush[0] = 0, gp_t = 0;
 	}
 	perf_report(perf_t0, SDL_GetPerformanceCounter(), c);
