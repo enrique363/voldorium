@@ -317,7 +317,7 @@ closed.
 | | `font` | file | | The Dreamcast system font (optional, `biosfont.bin`). |
 | | `loading` | `original`, `fast` | ✓ | Disc reads at the Dreamcast drive's speed, or instant. Online is always `original`. |
 | | `vmu` | file | | The memory card (default `vmu_a1.bin` next to the game). |
-| | `unlock_all` | `0`, `1` | | `1` unlocks every character, stage, costume and extra mode offline, as online matches do. Added to what your memory card holds and saved on it, so it stays unlocked after setting it back to `0` (back up `vmu_a1.bin` first to keep a copy without it). |
+| | `unlock_all` | `0`, `1` | | `1` unlocks everything offline: characters (no NEW labels), costumes, stages, extra modes, all 338 Art Gallery pictures and every Mission Battle chapter. Added to what your memory card holds and saved on it, so it stays unlocked after setting it back to `0` (back up `vmu_a1.bin` first to keep a copy without it). |
 | | `update_check` | `1`, `0` | | Asks the lobby server for a newer version at the main menu (sends only the version). |
 | `[video]` | `fullscreen` | `1`, `0` | ✓ | Full screen or a window (also Alt+Enter / F11). |
 | | `resolution` | `native`, `77%`, `67%`, `59%`, `50%`, `1920x1080`, `1920x1200`... | ✓ | The size the game is drawn at, and its shape: your monitor's (from 4:3 to 16:9; wider screens get side bars), a share of it that AMD FSR 1 sharpens back up to full size (for slower PCs), or a 16:9, 16:10 or 4:3 size. |

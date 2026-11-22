@@ -471,6 +471,78 @@ static int back_step(void)
 	return 1;
 }
 
+/* [game] unlock_all = 1 (M1_UNLOCKALL, config.c): offline, everything a complete save has, merged
+   into the card's progress (records, points and anything already earned stay; nothing is taken
+   away). Held every loop, so the card loading later does not lock it again; the game saves it to
+   the card like any unlock. Values from a save with everything unlocked:
+   - characters (0x8c336dfa + 4 * c: unlocked; 0x8c336df8 + 4 * c: 0 or 0xffff until picked, the
+     NEW label): unlocked and picked, character 10 (none) left alone;
+   - stages, Inferno and the extra modes, costumes (0x8c336e60/64/68, as online) and three flag
+     sets (0x8c336e54/58/5c, set bit by bit by 0x8c0e1e1e, 0x8c0e1ec0 and 0x8c0e1d5e);
+   - the Mission Battle and Art Gallery block ("CGMS") at 0x8c26cc60: the chapters reached
+     (+0x10/+0x12/+0x16, raised one by one by 0x8c052d60), its four bit sets (+0x18 17 bits,
+     +0x1c the gallery items, 465 bits of which 338 exist, with their count at +8 as 0x8c05256e
+     keeps it, +0x58 20 bits, +0x5c the 82 missions), and each mission's two records (+0x78 and
+     +0x208, 82 halfwords each: 0 = never played) at 1 at least. */
+static void unlock_everything(void)
+{
+	for (u32 c = 1; c <= 20; c++)
+	{
+		const u32 a = 0x8c336df8u + 4 * c;
+		if (c == 10)
+			continue;
+		if (rd16(a) == 0 || rd16(a) == 0xffff)
+			wr16(a, 1);
+		if (rd16(a + 2) == 0)
+			wr16(a + 2, 1);
+	}
+	static const u32 masks[][2] = { { 0x8c336e54u, 0x0000000fu }, { 0x8c336e58u, 0x0000bbf6u }, { 0x8c336e5cu, 0x00657302u },
+									{ 0x8c336e60u, 0x007f7300u }, { 0x8c336e64u, 0x0000007fu }, { 0x8c336e68u, 0x0037fbfeu } };
+	for (unsigned i = 0; i < sizeof(masks) / sizeof(masks[0]); i++)
+		if ((rd32(masks[i][0]) & masks[i][1]) != masks[i][1])
+			wr32(masks[i][0], rd32(masks[i][0]) | masks[i][1]);
+	const u32 g = 0x8c26cc60u;
+	if (rd32(g) != 0x534d4743u)	/* "CGMS" (bytes): the block is set up */
+		return;
+	static const u16 chapters[][2] = { { 0x10, 9 }, { 0x12, 16 }, { 0x16, 9 } };
+	for (unsigned i = 0; i < 3; i++)
+		if ((short)rd16(g + chapters[i][0]) < (short)chapters[i][1])
+			wr16(g + chapters[i][0], chapters[i][1]);
+	/* the bit sets: offset, words, then each word's bits */
+	static const u32 sets[][16] = {
+		{ 0x18, 1, 0x0001ffffu },
+		{ 0x1c, 11, 0xffffffffu, 0xffffffffu, 0xffffffffu, 0xffffffffu, 0xffffffffu, 0xffffffffu, 0xffffffffu, 0xffffffffu,
+		  0xffffffffu, 0xffffffffu, 0x0003ffffu },
+		{ 0x58, 1, 0x000fffffu },
+		{ 0x5c, 3, 0xffffffffu, 0xffffffffu, 0x0003ffffu },
+	};
+	for (unsigned s = 0; s < 4; s++)
+		for (u32 w = 0; w < sets[s][1]; w++)
+		{
+			const u32 a = g + sets[s][0] + 4 * w;
+			if ((rd32(a) & sets[s][2 + w]) != sets[s][2 + w])
+				wr32(a, rd32(a) | sets[s][2 + w]);
+		}
+	u32 items = 0;	/* the gallery count, as setting each item's bit one by one keeps it */
+	for (u32 w = 0; w < 15; w++)
+	{
+		u32 v = rd32(g + 0x1c + 4 * w);
+		if (w == 14)
+			v &= 0x1ffffu;	/* 465 bits */
+		for (; v; v &= v - 1)
+			items++;
+	}
+	if (rd16(g + 8) != items)
+		wr16(g + 8, (u16)items);
+	for (u32 m = 0; m < 82; m++)
+	{
+		if (rd16(g + 0x78 + 2 * m) == 0)
+			wr16(g + 0x78 + 2 * m, 1);
+		if (rd16(g + 0x208 + 2 * m) == 0)
+			wr16(g + 0x208 + 2 * m, 1);
+	}
+}
+
 void netplay_hook(SH4 *c)
 {
 	(void)c;
@@ -541,31 +613,11 @@ void netplay_hook(SH4 *c)
 	}
 	if (!on)
 	{
-		/* [game] unlock_all = 1 (M1_UNLOCKALL, config.c): offline, everything online matches
-		   unlock below is unlocked too, merged into the card's progress rather than replacing it
-		   (records and anything already unlocked stay). Held every loop, so the card loading
-		   later does not lock it again; the game saves it to the card like any unlock. */
-		static int unlock = -1;
+		static int unlock = -1;	/* [game] unlock_all, see unlock_everything */
 		if (unlock < 0)
 			unlock = getenv("M1_UNLOCKALL") && atoi(getenv("M1_UNLOCKALL")) && !back && !m1_net_active;
 		if (unlock)
-		{
-			for (u32 c = 1; c <= 20; c++)
-			{
-				const u32 a = 0x8c336df8u + 4 * c, v = rd32(a), want = c == 10 ? 0x0000ffffu : 0x00010001u;
-				u32 n = v;
-				if (!(v & 0xffffu))
-					n |= want & 0xffffu;
-				if (!(v >> 16))
-					n |= want & 0xffff0000u;
-				if (n != v)
-					wr32(a, n);
-			}
-			static const u32 masks[][2] = { { 0x8c336e60u, 0x007f7300u }, { 0x8c336e64u, 0x0000007fu }, { 0x8c336e68u, 0x0037fbfeu } };
-			for (unsigned i = 0; i < 3; i++)
-				if ((rd32(masks[i][0]) & masks[i][1]) != masks[i][1])
-					wr32(masks[i][0], rd32(masks[i][0]) | masks[i][1]);
-		}
+			unlock_everything();
 		return;
 	}
 	{

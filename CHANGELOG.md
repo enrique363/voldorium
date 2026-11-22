@@ -34,10 +34,12 @@ All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); 
   while its pictures are enlarged); elsewhere both are on. The choice is written into
   `voldorium.ini` once and never changed again; the GRAPHICS menu changes it any time.
 - **Unlock everything offline** (enrique363/voldorium#26): `[game] unlock_all = 1` in
-  `voldorium.ini` unlocks every character, stage, costume and extra mode, as online matches
-  already do. It adds to your memory card's progress (records and earned unlocks stay) and is
-  saved on the card, so it stays unlocked after setting it back to 0. Only in the ini file, not
-  in the menus.
+  `voldorium.ini` unlocks everything a complete save has: every character (already played, so
+  without NEW labels), costume, stage and extra mode, all 338 Art Gallery pictures in every
+  gallery, every Mission Battle chapter with its missions marked as played, and the main menu
+  of a finished game. It adds to your memory card's progress (records, points and earned
+  unlocks stay) and is saved on the card, so it stays unlocked after setting it back to 0. Only
+  in the ini file, not in the menus.
 
 ### Changed
 - **No more slowdown when Inferno explodes** (enrique363/voldorium#11, enrique363/voldorium#19):
