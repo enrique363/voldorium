@@ -3125,11 +3125,15 @@ static void perf_report(u64 t0, u64 t1, const TaCtx *c)
 		const double g = perf_prev ? (double)(t0 - perf_prev) * f : 0, d = (double)(t1 - t0) * f;
 		{
 			extern double tex_decode_ms;
+			extern u64 tex_lookups, tex_probes;
+			u32 tex_slots_used(void);
 			if (slow > 0 && g + d > slow)
-				printf("perf slow: render %llu mode %u: game %.1f ms, draw %.1f ms, %u polygons, %llu texture decodes (%.1f ms)\n",
+				printf("perf slow: render %llu mode %u: game %.1f ms, draw %.1f ms, %u polygons, %llu texture decodes (%.1f ms), %llu lookups %llu probes, %u slots used\n",
 					   (unsigned long long)rendered, rd32(0x8c24a584), g, d, c ? c->np : 0,
-					   (unsigned long long)(tex_decodes() - last_dec), tex_decode_ms);
+					   (unsigned long long)(tex_decodes() - last_dec), tex_decode_ms,
+					   (unsigned long long)tex_lookups, (unsigned long long)tex_probes, tex_slots_used());
 			tex_decode_ms = 0;
+			tex_lookups = tex_probes = 0;
 		}
 		last_dec = tex_decodes();
 	}
