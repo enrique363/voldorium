@@ -82,7 +82,7 @@ All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); 
   original's 2.5 s, and exactly the same game frames.
 - **The log says why VSync is off**: `video: vsync off` now adds whether VSYNC is OFF in the
   settings or the graphics driver refused it, with the driver's reason.
-- **The mouse cursor hides** (enrique363/voldorium#21) after 2 seconds without moving, in a
+- **The mouse cursor hides** (enrique363/voldorium#21, enrique363/voldorium#25) after 2 seconds without moving, in a
   window and in full screen. Moving the mouse shows it again.
 
 ### Fixed
