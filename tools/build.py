@@ -91,21 +91,71 @@ def local_env():
     return env
 
 
+# Zig's community mirrors (ziglang.org asks tools to use them first; its own server can be slow).
+# The list is read from ziglang.org, with these as a fallback. Any mirror is safe: the file
+# must still match its pinned SHA-256.
+ZIG_MIRRORS_URL = 'https://ziglang.org/download/community-mirrors.txt'
+ZIG_MIRRORS = ['https://pkg.hexops.org/zig', 'https://zig.linus.dev/zig', 'https://pkg.earth/zig',
+               'https://zig.chainsafe.dev', 'https://zig.bcr.ist', 'https://fs.liujiacai.net/zigbuilds']
+
+
+def zig_sources(url):
+    """Up to 4 mirrors in random order, then ziglang.org itself."""
+    import random
+    mirrors = []
+    try:
+        with urllib.request.urlopen(ZIG_MIRRORS_URL, timeout=15) as r:
+            mirrors = [l.strip().rstrip('/') for l in r.read().decode('utf-8', 'replace').splitlines()
+                       if l.strip().startswith('https://')]
+    except Exception:
+        pass
+    mirrors = mirrors or list(ZIG_MIRRORS)
+    random.shuffle(mirrors)
+    fname = url.rsplit('/', 1)[1]
+    return ['%s/%s?source=voldorium' % (m, fname) for m in mirrors[:4]] + [url]
+
+
+def fetch(url, last):
+    """The whole file, with a progress line every 10%. A source that stalls for 30 seconds, or
+    (unless it is the last one left) stays under 100 KB/s for 20 seconds, is given up on."""
+    with urllib.request.urlopen(url, timeout=30) as r:
+        total = int(r.headers.get('Content-Length') or 0)
+        buf, got, start, shown = io.BytesIO(), 0, time.time(), 0
+        while True:
+            chunk = r.read(1 << 16)
+            if not chunk:
+                break
+            buf.write(chunk)
+            got += len(chunk)
+            secs = time.time() - start
+            if not last and secs > 20 and got / secs < 100e3:
+                raise IOError('too slow (%.0f KB/s)' % (got / secs / 1e3))
+            if total > 4e6 and got * 10 // total > shown:
+                shown = got * 10 // total
+                say('    %3d%%  %.1f of %.1f MB, %.1f MB/s' % (shown * 10, got / 1e6, total / 1e6, got / 1e6 / max(secs, 0.01)))
+        if total and got != total:
+            raise IOError('cut off at %d of %d bytes' % (got, total))
+        return buf.getvalue()
+
+
 def download(name):
     url, sha, _ = PINNED[name]
-    say('  downloading %s' % url)
-    for attempt in range(3):
+    sources = zig_sources(url) if name == 'zig' else [url] * 3
+    for i, src in enumerate(sources):
+        say('  downloading %s' % src)
         try:
-            with urllib.request.urlopen(url, timeout=60) as r:
-                data = r.read()
-            break
-        except Exception as e:  # network hiccup: try again
-            if attempt == 2:
-                fail('could not download %s (%s). Check the internet connection and run the builder again.' % (url, e))
+            data = fetch(src, i == len(sources) - 1)
+        except Exception as e:  # network hiccup or a slow mirror: try the next source
+            say('    failed: %s' % e)
+            if i == len(sources) - 1:
+                fail('could not download %s. Check the internet connection and run the builder again.' % name)
             time.sleep(3)
-    digest = hashlib.sha256(data).hexdigest()
-    if digest != sha:
-        fail('%s does not match its pinned SHA-256 (got %s). The download was damaged or changed; nothing was used.' % (name, digest))
+            continue
+        if hashlib.sha256(data).hexdigest() == sha:
+            break
+        say('    does not match its pinned SHA-256: not used')
+        if i == len(sources) - 1:
+            fail('%s does not match its pinned SHA-256. The download was damaged or changed; nothing was used.' % name)
     say('  %s: %.1f MB, SHA-256 ok' % (name, len(data) / 1e6))
     return data
 
