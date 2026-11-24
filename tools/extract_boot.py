@@ -23,9 +23,17 @@ OUT = os.path.join(os.path.dirname(HERE), 'extracted')
 def data_track(gdi):
     folder = os.path.dirname(os.path.abspath(gdi))
     for line in open(gdi):
-        f = line.split()
-        if len(f) >= 5 and f[0].isdigit() and int(f[1]) >= 45000 and f[2] == '4' and f[3] == '2352':
-            return os.path.join(folder, f[4].strip('"')), int(f[1])
+        f = line.split(None, 4)
+        if len(f) == 5 and f[0].isdigit() and f[1].isdigit() and int(f[1]) >= 45000 and f[2] == '4' and f[3] == '2352':
+            name = f[4].strip()
+            if name.startswith('"'):    # a quoted name may hold spaces: "Track 03.bin"
+                end = name.find('"', 1)
+                if end <= 1:
+                    continue
+                name = name[1:end]
+            else:
+                name = name.split()[0]
+            return os.path.join(folder, name), int(f[1])
     raise SystemExit('%s: no high-density data track (LBA 45000, 2352-byte sectors)' % gdi)
 
 

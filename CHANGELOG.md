@@ -91,6 +91,10 @@ All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); 
   together as one window, so its ends went to the screen sides and its right half was drawn as a
   sliver across the text. Boxes across the middle of the screen now count as a window from a
   lower height. Two-line boxes and the rest of the HUD are unchanged.
+- **Disc dumps with quoted track names** (enrique363/voldorium#27, thanks @GUMMIBRI): a .gdi can
+  put its track file names in quotes, which names with spaces need (`"SoulCalibur (Track 3).bin"`).
+  Voldorium cut such a name at its first space and could not open the disc; both the game and the
+  first-start build now read the whole quoted name.
 
 ## 1.2.1 (2026-11-17)
 
