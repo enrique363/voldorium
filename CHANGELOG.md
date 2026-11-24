@@ -2,7 +2,7 @@
 
 All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); see the README.
 
-## Unreleased
+## 1.2.3 (2026-11-24)
 
 ### Fixed
 - **Linux first start stuck downloading Zig** (enrique363/voldorium#28): the compiler now comes
