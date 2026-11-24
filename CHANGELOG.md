@@ -2,7 +2,7 @@
 
 All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); see the README.
 
-## 1.2.2 (unreleased)
+## 1.2.2 (2026-11-24)
 
 ### Added
 - **Voldo's original 2P outfit** (enrique363/voldorium#22): the US release replaced Voldo's 2P

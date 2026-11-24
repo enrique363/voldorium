@@ -2,6 +2,15 @@
 
 [![Latest release](https://img.shields.io/github/v/release/enrique363/voldorium?label=latest%20release)](https://github.com/enrique363/voldorium/releases/latest)
 
+<p align="center">
+  <img src="docs/images/fight-16x9.jpg" width="49%" alt="A fight in 16:9">
+  <img src="docs/images/select-hires.jpg" width="49%" alt="Character select with hi-res portraits and text">
+</p>
+<p align="center">
+  <img src="docs/images/inferno-boss-outfit.jpg" width="49%" alt="Inferno's final boss form as a playable outfit">
+  <img src="docs/images/voldo-original-2p.jpg" width="49%" alt="Voldo's original 2P outfit">
+</p>
+
 A native Windows and Linux port of the Dreamcast fighting game **SoulCalibur** (USA, T-1401N, V1.000),
 made by static recompilation: the game's SH-4 machine code is translated into C and compiled
 together with a small native runtime that stands in for the Dreamcast hardware. It adds:
@@ -40,8 +49,17 @@ together with a small native runtime that stands in for the Dreamcast hardware. 
 - **Windows and Linux players meet in the same lobby**, the full roster unlocked in every match.
 - **Update notice**: the main menu tells you when a newer version is out.
 
+**Characters**
+- **Inferno's final boss form** as a playable outfit: the flaming Inferno from the end of Arcade
+  mode (hold **Y** and press **A** on Inferno at character select).
+- **Voldo's original 2P outfit**: the Japanese and European one with the bull's head, still on the
+  US disc but unused there (hold **Y** and press **X** on Voldo). Works online too.
+- **Unlock everything** offline with one line in `voldorium.ini` (`[game] unlock_all = 1`): every
+  character, costume, stage, extra mode, Art Gallery picture and Mission Battle chapter.
+
 **Play**
 - **Fast loading** (or the original loading times, if you prefer).
+- **Smooth on the Steam Deck**: fights hold 60 FPS, and Inferno's explosion no longer slows down.
 - A built-in virtual memory card: progress and unlocks are saved.
 - **Keyboard and controllers** (Xbox layout, the Steam Deck's controls): a second controller is
   player 2 for VS BATTLE; keyboard keys can be remapped in `voldorium.ini`.
@@ -293,6 +311,12 @@ rt = b+y
 Button names are `a b x y l r start`, joined with `+`. What each Dreamcast button does in a fight
 is set by the game's own Button Config (OPTIONS). A second controller is player 2 for VS BATTLE.
 Combinations are ordinary inputs, so they work online too.
+
+**Extra outfits.** At character select, Y and B switch between a character's 1P and 2P outfits,
+A or X picks, and holding Y while pressing A picks the third outfit, as on the Dreamcast.
+Voldorium adds two: hold **Y** and press **A** on **Inferno** for his final boss form, and hold
+**Y** and press **X** on **Voldo** for his original 2P outfit (the one with the bull's head). Fights
+keep their usual stages; only the real final battle takes place in Chaos.
 
 **Online Versus** is on the main menu. It lists players around the world (and on your local
 network) who are searching with the same build. Pick one to challenge; the other player sees

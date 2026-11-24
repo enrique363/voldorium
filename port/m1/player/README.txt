@@ -23,6 +23,11 @@ buttons for L / R); a second controller is player 2, for VS BATTLE. The shoulder
 triggers can press other buttons or several at once, e.g. A and B together: [pad] in
 voldorium.ini (see voldorium.ini below). In the gallery's picture
 viewer L / R change pictures (the D-pad moves the picture).
+
+Extra outfits: at character select, Y and B switch between a character's 1P and 2P outfits, A
+or X picks, and holding Y while pressing A picks the third outfit. Voldorium adds two: hold Y
+and press A on Inferno for his final boss form, and hold Y and press X on Voldo for his original
+2P outfit (the one with the bull's head). Fights keep their usual stages.
 The game starts full screen at your monitor's resolution. GRAPHICS in the main menu (under
 OPTIONS) switches between full screen and a window, sets the resolution the game is drawn at
 (native, which also takes your monitor's shape from 4:3 to 16:9, such as 16:10; or a 16:9,
