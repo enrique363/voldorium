@@ -126,7 +126,8 @@ extern char **environ;
 
 u32 hw_reg(u32 addr);
 unsigned tex_get(u32 tcw, u32 tsp);
-unsigned tex_get_rep(u32 tcw, u32 tsp);
+unsigned tex_get_rep(u32 tcw, u32 tsp, const float *uv);
+static const TaVert *sf_v;	/* the vertices of the polygons state_for is given, 0: unknown */
 unsigned tex_get_hi(u32 tcw, u32 tsp, int *scale);
 
 static SDL_Window *win;
@@ -1285,7 +1286,15 @@ static void state_for(const TaPoly *p, int list, PolyState *s)
 	const int smooth = !video_text_sharp();
 	int hi = 1;
 	unsigned rep;
-	if ((rep = tex_get_rep(p->tcw, tsp)))
+	float uv[4] = { 1e30f, 1e30f, -1e30f, -1e30f };	/* the polygon's texture coordinates: u0 v0 u1 v1 */
+	if (sf_v)
+		for (u32 k = 0; k < p->count; k++)
+		{
+			const TaVert *v = &sf_v[p->first + k];
+			uv[0] = v->u < uv[0] ? v->u : uv[0], uv[1] = v->v < uv[1] ? v->v : uv[1];
+			uv[2] = v->u > uv[2] ? v->u : uv[2], uv[3] = v->v > uv[3] ? v->v : uv[3];
+		}
+	if ((rep = tex_get_rep(p->tcw, tsp, sf_v && p->count ? uv : 0)))
 	{
 		s->tex = rep;	/* replacement art (tex.c) */
 		filt = GL_LINEAR;
@@ -2674,7 +2683,9 @@ static void draw_lists(TaCtx *c)
 				continue;
 			PolyState s;
 			const u64 gp_s0 = gp_level() >= 2 ? SDL_GetPerformanceCounter() : 0;
+			sf_v = c->v;
 			state_for(p, p->list, &s);
+			sf_v = 0;
 			if (gp_s0)
 				gp_cpu[gp_phase == 3] += SDL_GetPerformanceCounter() - gp_s0;
 			{

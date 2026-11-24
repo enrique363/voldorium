@@ -633,13 +633,30 @@ static u32 lerp_rgba(u32 a, u32 b, u32 t)
 
 /* the texture with its replacement art (render.c draws it with bilinear filtering), 0 when it
    has none */
-unsigned tex_get_rep(u32 tcw, u32 tsp)
+unsigned tex_get_rep(u32 tcw, u32 tsp, const float *uv)
 {
 	if (!reps_ready)
 		reps_init();
 	if (!nreps)
 		return 0;
 	TexEntry *e = lookup(tcw, tsp);
+	if (uv)
+	{
+		/* uv: the polygon's texture coordinates (u0 v0 u1 v1). A polygon that draws none of the
+		   art's texels uses the plain texture: rebuilding the art copy means enlarging the whole
+		   texture, and Inferno's explosion recolours the hit labels' texture (its flames are in
+		   the other half) every frame, 18 to 26 ms a frame (issue #19) */
+		const u32 tw = 8u << ((tsp >> 3) & 7), th = (tcw >> 31) ? tw : 8u << (tsp & 7);
+		int hit = uv[0] < 0 || uv[1] < 0 || uv[2] > 1 || uv[3] > 1;	/* wrapping: any texel */
+		for (int i = 0; i < nreps && !hit; i++)
+		{
+			const Rep *r = &reps[i];
+			hit = r->hash == e->hash && uv[2] * tw > r->x && uv[0] * tw < r->x + r->w &&
+				  uv[3] * th > r->y && uv[1] * th < r->y + r->h;	/* the flames end on the art's first row */
+		}
+		if (!hit)
+			return 0;
+	}
 	const u64 key = (e->hash ^ e->pal_hash) | 1;
 	if (e->rep_key == key)
 		return e->rep_id;
