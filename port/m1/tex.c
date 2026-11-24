@@ -180,7 +180,18 @@ static u32 decode(u32 tcw, u32 w, u32 h, u32 *out)
 }
 
 /* ---- cache ------------------------------------------------------------------------------ */
-#define NTEX 2048
+/* An open-addressed table: a texture lives within NPROBE slots of its home slot; when they are
+   all taken, the one used longest ago gives way. The home slot comes from the high bits of a
+   multiplicative hash: the low bits of tcw * k depend only on tcw's low bits, which are 0 for
+   aligned textures, so every texture once hashed to a few slots and each lookup searched all the
+   textures seen so far, 18 to 26 ms a frame by the end of arcade mode (issue #19). */
+#define NTEX_BITS 12
+#define NTEX (1u << NTEX_BITS)
+#define NPROBE 32
+static u32 home_slot(u32 tcw, u32 size)
+{
+	return (u32)((((u64)tcw << 6 | size) * 0x9e3779b97f4a7c15ull) >> (64 - NTEX_BITS));
+}
 typedef struct
 {
 	u32 tcw, size, used;		/* size = TSP bits 0-5 */
@@ -199,9 +210,18 @@ typedef struct
 	int hi_pending;				/* its cubic enlargement is with the worker (tex_get_hi) */
 	unsigned rep_id;			/* with replacement art (tex_get_rep), 0: none */
 	u64 rep_key;				/* the contents rep_id was made for (hash ^ pal_hash), 0: not checked */
+	u64 last_use;				/* render count of its last lookup (which entry gives way) */
 } TexEntry;
 static TexEntry cache[NTEX];
 static u64 decodes, rehashed;
+u64 tex_lookups, tex_probes;	/* M1_PERF=slow: cache lookups and slots looked at */
+u32 tex_slots_used(void)
+{
+	u32 n = 0;
+	for (u32 i = 0; i < NTEX; i++)
+		n += cache[i].used != 0;
+	return n;
+}
 double tex_decode_ms;	/* wall time decoding and uploading textures (render.c M1_PERF=slow) */
 
 /* VRAM pages are rewritten with identical data all the time (character select re-sends its
@@ -253,12 +273,26 @@ static TexEntry *lookup(u32 tcw, u32 tsp)
 	const u32 size = tsp & 63, w = 8u << ((tsp >> 3) & 7), h = 8u << (tsp & 7);
 	const u32 start = (tcw & 0x1fffff) << 3;
 	const int pal = ((tcw >> 27) & 7) >= 5;
-	u32 slot = ((tcw * 2654435761u) ^ size) % NTEX;
-	for (int probe = 0; probe < NTEX; probe++, slot = (slot + 1) % NTEX)
+	u64 render_count(void);
+	const u64 now = render_count();
+	u32 slot = home_slot(tcw, size), victim = slot;
+	u64 oldest = ~0ull;
+	tex_lookups++;
+	for (u32 probe = 0; probe < NPROBE; probe++, slot = (slot + 1) & (NTEX - 1))
 	{
 		TexEntry *e = &cache[slot];
-		if (e->used && e->tcw == tcw && e->size == size)
+		tex_probes++;
+		if (!e->used)
 		{
+			victim = slot;	/* not cached: a free slot */
+			break;
+		}
+		if (e->last_use < oldest)
+			oldest = e->last_use, victim = slot;
+		if (e->tcw == tcw && e->size == size)
+		{
+			victim = slot;
+			e->last_use = now;
 			static int hashes = -1;
 			if (hashes < 0)
 				hashes = !getenv("M1_TEXHASH") || atoi(getenv("M1_TEXHASH"));	/* M1_TEXHASH=0: off, for comparison */
@@ -284,10 +318,9 @@ static TexEntry *lookup(u32 tcw, u32 tsp)
 			}
 			break;	/* changed: decode again into this slot */
 		}
-		if (!e->used)
-			break;
 	}
-	TexEntry *e = &cache[slot];
+	TexEntry *e = &cache[victim];	/* changed, free, or the least recently used nearby */
+	e->last_use = now;
 	static u32 buf[1024 * 1024];
 	const u32 hh = (tcw >> 31) ? w : h;
 	const clock_t td0 = clock();
@@ -937,8 +970,8 @@ u64 tex_content_id(u32 tcw, u32 tsp)
 {
 	const u32 size = tsp & 63;
 	const int pal = ((tcw >> 27) & 7) >= 5;
-	u32 slot = ((tcw * 2654435761u) ^ size) % NTEX;
-	for (int probe = 0; probe < NTEX; probe++, slot = (slot + 1) % NTEX)
+	u32 slot = home_slot(tcw, size);
+	for (u32 probe = 0; probe < NPROBE; probe++, slot = (slot + 1) & (NTEX - 1))
 	{
 		const TexEntry *e = &cache[slot];
 		if (!e->used)

@@ -51,10 +51,16 @@ All builds need your own legal disc dump of SoulCalibur (USA, T-1401N, V1.000); 
   texture already in use, and Mesa waited for the GPU to finish drawing with it first. Five
   waits a frame meant 43 to 62 ms of drawing per frame, about 15 FPS for a second. A rewritten
   texture now gets a fresh texture instead. Same pictures, byte for byte. A third cost, found
-  with the test 4 profiler, remained on every system: smooth text enlarges new 2D textures on the
-  processor, about 9 ms each, and the scene brings about 5 new ones a frame (25 ms a frame). The
-  enlargement now runs on a separate thread: a new texture is drawn plain for a frame, then
-  smooth. Opening a menu screen no longer costs 10 to 40 ms either.
+  with the test 4 and 5 profilers, remained on every system: finding a texture in the port's
+  texture cache. A flaw in its hashing put almost every texture in the same few places, so each
+  lookup searched through every texture seen since the game started. That grew through a
+  session, and by Inferno's explosion it cost 18 to 26 ms a frame. A lookup now looks at one
+  place, and fights draw about 5 times faster all through arcade mode (4.8 ms down to 0.8 ms
+  a frame on the test PC).
+- **Menu screens open without a hitch** (enrique363/voldorium#19): smooth text enlarges new 2D
+  textures on the processor, about 9 ms each, and a menu screen's first frames bring several
+  (10 to 40 ms a frame). The enlargement now runs on a separate thread: a new texture is drawn
+  plain for a frame, then smooth.
 - **Shorter hitch when a fight starts** (enrique363/voldorium#19): the roughly 30 new textures
   on a fight's first frame now decode in 7 ms instead of 31 ms on the test PC (on a Steam Deck
   the hitch was about 100 ms).
