@@ -320,14 +320,26 @@ static int open_gdi(const char *gdi)
 	{
 		unsigned trackno, lba, type, size;
 		char name[512];
-		if (sscanf(line, "%u %u %u %u %511s", &trackno, &lba, &type, &size, name) == 5 && lba >= 45000 && type == 4 && size == 2352)
+		int name_offset = 0;
+		if (sscanf(line, "%u %u %u %u %n", &trackno, &lba, &type, &size, &name_offset) != 4 ||
+			!name_offset || lba < 45000 || type != 4 || size != 2352)
+			continue;
+		const char *filename = line + name_offset;
+		if (*filename == '"')
 		{
-			char path[1600];
-			snprintf(path, sizeof(path), "%s%s", dir, name);
-			gd_open(path, lba);
-			ok = 1;
-			break;
+			const char *end = strchr(++filename, '"');
+			if (!end || end == filename || (size_t)(end - filename) >= sizeof(name))
+				continue;
+			memcpy(name, filename, (size_t)(end - filename));
+			name[end - filename] = 0;
 		}
+		else if (sscanf(filename, "%511s", name) != 1)
+			continue;
+		char path[1600];
+		snprintf(path, sizeof(path), "%s%s", dir, name);
+		gd_open(path, lba);
+		ok = 1;
+		break;
 	}
 	fclose(f);
 	return ok;
