@@ -126,7 +126,8 @@ extern char **environ;
 
 u32 hw_reg(u32 addr);
 unsigned tex_get(u32 tcw, u32 tsp);
-unsigned tex_get_rep(u32 tcw, u32 tsp);
+unsigned tex_get_rep(u32 tcw, u32 tsp, const float *uv);
+static const TaVert *sf_v;	/* the vertices of the polygons state_for is given, 0: unknown */
 unsigned tex_get_hi(u32 tcw, u32 tsp, int *scale, int *edge, int text, int pictures);
 void tex_hi_reset(void);
 
@@ -1576,7 +1577,15 @@ static void state_for(const TaPoly *p, int list, PolyState *s)
 	const int tm = video_text_mode(), smooth = tm < 2 ? 2 - tm : 0, pictures = video_portraits();	/* smooth: 2 HI-RES, 1 SMOOTH; pictures: [video] portraits (tex.c) */
 	int hi = 1, hb = 0;
 	unsigned rep;
-	if ((rep = tex_get_rep(p->tcw, tsp)))
+	float uv[4] = { 1e30f, 1e30f, -1e30f, -1e30f };	/* the polygon's texture coordinates: u0 v0 u1 v1 */
+	if (sf_v)
+		for (u32 k = 0; k < p->count; k++)
+		{
+			const TaVert *v = &sf_v[p->first + k];
+			uv[0] = v->u < uv[0] ? v->u : uv[0], uv[1] = v->v < uv[1] ? v->v : uv[1];
+			uv[2] = v->u > uv[2] ? v->u : uv[2], uv[3] = v->v > uv[3] ? v->v : uv[3];
+		}
+	if ((rep = tex_get_rep(p->tcw, tsp, sf_v && p->count ? uv : 0)))
 	{
 		s->tex = rep;	/* replacement art (tex.c) */
 		filt = GL_LINEAR;
@@ -3394,10 +3403,22 @@ static void draw_lists(TaCtx *c)
 			if (only >= 0 && (int)idx[j] != only)
 				continue;
 			PolyState s;
-			const u64 gp_s0 = gp_level() >= 2 ? SDL_GetPerformanceCounter() : 0;
+			static double slow_state = -1;	/* M1_SLOWSTATE=us (debugging): each polygon whose state_for takes longer */
+			if (slow_state < 0)
+				slow_state = getenv("M1_SLOWSTATE") ? atof(getenv("M1_SLOWSTATE")) : 0;
+			const u64 gp_s0 = gp_level() >= 2 || slow_state > 0 ? SDL_GetPerformanceCounter() : 0;
+			sf_v = c->v;
 			state_for(p, p->list, &s);
+			sf_v = 0;
 			if (gp_s0)
-				gp_cpu[gp_phase == 3] += SDL_GetPerformanceCounter() - gp_s0;
+			{
+				const u64 dt = SDL_GetPerformanceCounter() - gp_s0;
+				gp_cpu[gp_phase == 3] += dt;
+				const double us = (double)dt * 1e6 / (double)SDL_GetPerformanceFrequency();
+				if (slow_state > 0 && us > slow_state)
+					printf("slowstate: render %llu poly %u list %u cls %u tcw %08x tsp %08x tex %u filt %d: %.0f us\n",
+						   (unsigned long long)rendered, idx[j], p->list, p->cls, p->tcw, p->tsp, s.tex, s.filt, us);
+			}
 			{
 				/* M1_FLATPOLY=a:b (debugging): polygons a..b without their texture */
 				static int fa = -2, fb = -1;

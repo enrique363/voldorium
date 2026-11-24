@@ -324,7 +324,9 @@ static TexEntry *lookup(u32 tcw, u32 tsp)
 	static u32 buf[1024 * 1024];
 	const u32 hh = (tcw >> 31) ? w : h;
 	const clock_t td0 = clock();
+	const u64 q0 = SDL_GetPerformanceCounter();	/* M1_SLOWSTATE: the parts of a slow refresh */
 	const u32 span = decode(tcw, w, h, buf);
+	const u64 q1 = SDL_GetPerformanceCounter();
 	decodes++;
 	{
 		/* M1_TEXLOG=n: list the textures decoded during render n */
@@ -340,7 +342,11 @@ static TexEntry *lookup(u32 tcw, u32 tsp)
 			for (u32 i = 0; i < 16; i++)	/* a 4-bit texture's palette (for replacement art) */
 				printf("texlog:   palette %2u: %08x\n", i, palette((((tcw >> 21) & 63) << 4) | i));
 	}
+	const int was = e->used && e->tcw == tcw && e->size == size;
+	const u32 old_span = e->span;
+	const u64 q2 = SDL_GetPerformanceCounter();
 	e->id = gl_upload_texture(e->used ? e->id : 0, w, hh, buf);
+	const u64 q3 = SDL_GetPerformanceCounter();
 	tex_decode_ms += (double)(clock() - td0) * 1000.0 / CLOCKS_PER_SEC;	/* M1_PERF=slow */
 	if (!e->used || e->tcw != tcw || e->size != size)
 		e->hi_volatile = 0, e->hi_count = 0, e->hi_picture = 0, e->hi_plain = 0, e->hi_edge = 0;	/* another texture in this slot */
@@ -355,6 +361,17 @@ static TexEntry *lookup(u32 tcw, u32 tsp)
 	e->pal_hash = pal ? bank_hash(tcw) : 0;
 	e->hi_ok = 0;
 	e->rep_key = 0;
+	{
+		const u64 q4 = SDL_GetPerformanceCounter();
+		static double slow = -1;
+		if (slow < 0)
+			slow = getenv("M1_SLOWSTATE") ? atof(getenv("M1_SLOWSTATE")) : 0;
+		const double f = 1e6 / (double)SDL_GetPerformanceFrequency();
+		if (slow > 0 && (double)(q4 - q0) * f > slow)
+			printf("slowlookup: render %llu tcw %08x %ux%u span %u (was %u, %s): decode %.0f texlog %.0f upload %.0f hashes %.0f us\n",
+				   (unsigned long long)now, tcw, w, hh, span, old_span, was ? "refresh" : "new", (double)(q1 - q0) * f,
+				   (double)(q2 - q1) * f, (double)(q3 - q2) * f, (double)(q4 - q3) * f);
+	}
 	return e;
 }
 
@@ -856,13 +873,30 @@ static u32 lerp_rgba(u32 a, u32 b, u32 t)
 
 /* the texture with its replacement art (render.c draws it with bilinear filtering), 0 when it
    has none */
-unsigned tex_get_rep(u32 tcw, u32 tsp)
+unsigned tex_get_rep(u32 tcw, u32 tsp, const float *uv)
 {
 	if (!reps_ready)
 		reps_init();
 	if (!nreps)
 		return 0;
 	TexEntry *e = lookup(tcw, tsp);
+	if (uv)
+	{
+		/* uv: the polygon's texture coordinates (u0 v0 u1 v1). A polygon that draws none of the
+		   art's texels uses the plain texture: rebuilding the art copy means enlarging the whole
+		   texture, and Inferno's explosion recolours the hit labels' texture (its flames are in
+		   the other half) every frame, 18 to 26 ms a frame (issue #19) */
+		const u32 tw = 8u << ((tsp >> 3) & 7), th = (tcw >> 31) ? tw : 8u << (tsp & 7);
+		int hit = uv[0] < 0 || uv[1] < 0 || uv[2] > 1 || uv[3] > 1;	/* wrapping: any texel */
+		for (int i = 0; i < nreps && !hit; i++)
+		{
+			const Rep *r = &reps[i];
+			hit = r->hash == e->hash && uv[2] * tw > r->x && uv[0] * tw < r->x + r->w &&
+				  uv[3] * th > r->y && uv[1] * th < r->y + r->h;	/* the flames end on the art's first row */
+		}
+		if (!hit)
+			return 0;
+	}
 	const u64 key = (e->hash ^ e->pal_hash) | 1;
 	if (e->rep_key == key)
 		return e->rep_id;
@@ -949,6 +983,12 @@ unsigned tex_get_rep(u32 tcw, u32 tsp)
 			}
 	}
 	e->rep_id = gl_upload_texture(e->rep_id, w * k, h * k, b);
+	if (getenv("M1_SLOWSTATE"))
+	{
+		u64 render_count(void);
+		printf("reprebuild: render %llu tcw %08x %ux%u k %u uv %s %.3f %.3f %.3f %.3f\n", (unsigned long long)render_count(), tcw, w, h, k,
+			   uv ? "" : "(none)", uv ? uv[0] : 0, uv ? uv[1] : 0, uv ? uv[2] : 0, uv ? uv[3] : 0);
+	}
 	return e->rep_id;
 }
 
